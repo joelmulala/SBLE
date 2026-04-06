@@ -2,9 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useKeycloak } from '../auth/AuthProvider';
 import api from '../config/api';
+import { buildFileUploadFormData, triggerBlobDownload } from '../utils/fileTransfer';
 
 export default function Exams() {
-  const { id: courseId } = useParams();
+  const { courseId } = useParams();
   const { keycloak } = useKeycloak();
   const isLecturer = keycloak.hasRealmRole('lecturer') || keycloak.hasRealmRole('admin');
 
@@ -21,12 +22,15 @@ export default function Exams() {
     e.preventDefault();
     if (!file) return;
     setUploading(true);
-    const fd = new FormData();
-    fd.append('file', file);
-    fd.append('course_id', courseId);
-    fd.append('title', form.title);
-    fd.append('scheduled_at', form.scheduled_at);
-    fd.append('duration_minutes', form.duration_minutes);
+    const fd = buildFileUploadFormData({
+      file,
+      courseId,
+      title: form.title,
+      fields: {
+        scheduled_at: form.scheduled_at,
+        duration_minutes: form.duration_minutes
+      }
+    });
     try {
       const res = await api.post('/exams/upload', fd);
       setExams(prev => [...prev, res.data]);
@@ -45,14 +49,7 @@ export default function Exams() {
   const downloadExam = async (examId, title) => {
     try {
       const response = await api.get(`/exams/${examId}/download`, { responseType: 'blob' });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${title || `exam-${examId}`}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
+      triggerBlobDownload(response, `${title || `exam-${examId}`}.pdf`);
     } catch (_) {
       alert('Download failed');
     }

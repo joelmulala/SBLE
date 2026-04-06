@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Outlet, NavLink } from 'react-router-dom';
+import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import { useKeycloak } from '../auth/AuthProvider';
 import useNotifications from '../hooks/useNotifications';
 import styles from './Layout.module.css';
@@ -8,13 +8,48 @@ export default function Layout() {
   const { keycloak } = useKeycloak();
   const { notifications, dismiss } = useNotifications();
   const [showNotifs, setShowNotifs] = useState(false);
+  const isAdmin = keycloak.hasRealmRole('admin');
+  const isLecturer = keycloak.hasRealmRole('lecturer') || keycloak.hasRealmRole('admin');
 
   return (
     <div className={styles.shell}>
       <nav className={styles.sidebar}>
         <div className={styles.logo}>SBLE</div>
-        <NavLink to="/" end className={({ isActive }) => isActive ? styles.active : ''}>Dashboard</NavLink>
-        <NavLink to="/courses" className={({ isActive }) => isActive ? styles.active : ''}>Courses</NavLink>
+
+        <SidebarGroup label="MAIN">
+          <NavItem to={isLecturer ? '/lecturer/dashboard' : '/student/dashboard'} end icon="🏠">Dashboard</NavItem>
+        </SidebarGroup>
+
+        {isLecturer ? (
+          <>
+            <SidebarGroup label="ACADEMIC">
+              <NavItem to="/lecturer/courses" end icon="📚">Courses</NavItem>
+              <NavItem to="/lecturer/enrollment" icon="👥" matchRoutes={[/^\/lecturer\/courses\/[^/]+\/enrollment(?:\/)?$/]}>Enrollment</NavItem>
+              <NavItem to="/lecturer/assignments" icon="📝" matchRoutes={[/^\/lecturer\/courses\/[^/]+\/assignments(?:\/)?$/]}>Assignments</NavItem>
+              <NavItem to="/lecturer/quizzes" icon="🧪" matchRoutes={[/^\/lecturer\/courses\/[^/]+\/quizzes(?:\/)?$/]}>Quizzes</NavItem>
+              <NavItem to="/lecturer/exams" icon="📄" matchRoutes={[/^\/lecturer\/courses\/[^/]+\/exams(?:\/)?$/]}>Exams</NavItem>
+              <NavItem to="/lecturer/materials" icon="📁" matchRoutes={[/^\/lecturer\/courses\/[^/]+\/materials(?:\/)?$/]}>Materials</NavItem>
+            </SidebarGroup>
+
+            <SidebarGroup label="ANALYTICS">
+              <NavItem to="/lecturer/performance" icon="📈" matchRoutes={[/^\/lecturer\/courses\/[^/]+\/performance(?:\/)?$/]}>Performance</NavItem>
+            </SidebarGroup>
+          </>
+        ) : (
+          <SidebarGroup label="ACADEMIC">
+            <NavItem to="/student/courses" end icon="📚" matchRoutes={[/^\/student\/courses\/[^/]+(?:\/)?$/]}>Courses</NavItem>
+            <NavItem to="/student/materials" end icon="📁" matchRoutes={[/^\/student\/courses\/[^/]+\/materials(?:\/)?$/]}>Materials</NavItem>
+            <NavItem to="/student/assignments" end icon="📝" matchRoutes={[/^\/student\/courses\/[^/]+\/assignments(?:\/)?$/]}>Assignments</NavItem>
+            <NavItem to="/student/quizzes" end icon="🧪" matchRoutes={[/^\/student\/courses\/[^/]+\/quizzes(?:\/)?$/]}>Quizzes</NavItem>
+          </SidebarGroup>
+        )}
+
+        {isAdmin && (
+          <SidebarGroup label="ADMIN">
+            <NavItem to="/users" icon="⚙️">Users</NavItem>
+          </SidebarGroup>
+        )}
+
         <button className={styles.logout} onClick={() => keycloak.logout()}>Logout</button>
       </nav>
 
@@ -52,5 +87,63 @@ export default function Layout() {
         </main>
       </div>
     </div>
+  );
+}
+
+function SidebarGroup({ label, children }) {
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div
+        style={{
+          fontSize: '0.72rem',
+          fontWeight: 700,
+          letterSpacing: '0.06em',
+          color: '#94a3b8',
+          marginBottom: 8,
+          padding: '0 2px'
+        }}
+      >
+        {label}
+      </div>
+      <div style={{ display: 'grid', gap: 4 }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function NavItem({ to, children, icon, end = false, matchRoutes = [] }) {
+  const location = useLocation();
+  const target = typeof to === 'string' ? to : '';
+  const [pathname, hash = ''] = target.split('#');
+  const normalizedPath = pathname || '/';
+  const targetHash = hash ? `#${hash}` : '';
+
+  const isPrimaryPathActive = end
+    ? location.pathname === normalizedPath
+    : normalizedPath === '/'
+      ? location.pathname === '/'
+      : location.pathname === normalizedPath || location.pathname.startsWith(`${normalizedPath}/`);
+
+  const isMatchedRouteActive = matchRoutes.some((route) => {
+    if (route instanceof RegExp) {
+      return route.test(location.pathname);
+    }
+
+    if (typeof route !== 'string') {
+      return false;
+    }
+
+    return location.pathname === route || location.pathname.startsWith(`${route}/`);
+  });
+
+  const isHashActive = targetHash ? location.hash === targetHash : true;
+  const isActive = (isPrimaryPathActive || isMatchedRouteActive) && isHashActive;
+
+  return (
+    <NavLink to={to} end={end} className={isActive ? styles.active : ''}>
+      <span style={{ marginRight: 8 }}>{icon}</span>
+      {children}
+    </NavLink>
   );
 }

@@ -15,7 +15,7 @@ const AuditLog = require('./AuditLog');
 
 // Associations
 Course.belongsTo(User, { as: 'lecturer', foreignKey: 'lecturer_id' });
-Course.hasMany(Enrollment, { foreignKey: 'course_id' });
+Course.hasMany(Enrollment, { foreignKey: 'course_id', onDelete: 'CASCADE', hooks: true });
 Course.hasMany(Material, { foreignKey: 'course_id' });
 Course.hasMany(Assignment, { foreignKey: 'course_id' });
 Course.hasMany(Quiz, { foreignKey: 'course_id' });
@@ -26,9 +26,9 @@ Room.belongsTo(Course, { foreignKey: 'course_id' });
 Course.hasMany(Discussion, { foreignKey: 'course_id' });
 Discussion.belongsTo(Course, { foreignKey: 'course_id' });
 
-User.hasMany(Enrollment, { as: 'enrollments', foreignKey: 'student_id' });
-Enrollment.belongsTo(User, { as: 'student', foreignKey: 'student_id' });
-Enrollment.belongsTo(Course, { foreignKey: 'course_id' });
+User.hasMany(Enrollment, { as: 'enrollments', foreignKey: 'student_id', onDelete: 'CASCADE' });
+Enrollment.belongsTo(User, { as: 'student', foreignKey: 'student_id', onDelete: 'CASCADE' });
+Enrollment.belongsTo(Course, { foreignKey: 'course_id', onDelete: 'CASCADE' });
 User.hasMany(Discussion, { as: 'discussions', foreignKey: 'user_id' });
 Discussion.belongsTo(User, { as: 'author', foreignKey: 'user_id' });
 

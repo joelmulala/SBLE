@@ -5,23 +5,71 @@ const keycloak = require('../config/keycloak');
 const { attachUser, requireLecturer, authorizeCourseAccess, audit } = require('../middleware/auth');
 const { upload, UPLOAD_DIR } = require('../services/storage/uploadService');
 const { encryptFile, decryptFileToStream } = require('../services/encryption/fileEncryption');
-const { Material } = require('../models');
+const { Material, Course, Enrollment } = require('../models');
 
 const guard = [keycloak.protect(), attachUser];
 
+const normalizeCourseId = (payload = {}) => {
+  const rawValue = payload.courseId ?? payload.course_id;
+  const parsed = Number(rawValue);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
+
+const normalizeMaterialUploadBody = (req, res, next) => {
+  const courseId = normalizeCourseId(req.body);
+
+  if (!courseId) {
+    return res.status(400).json({ error: 'courseId is required' });
+  }
+
+  req.body.courseId = courseId;
+  req.body.course_id = courseId;
+  next();
+};
+
+// List materials visible to the current user
+router.get('/', ...guard, async (req, res) => {
+  try {
+    const { id: userId, role } = req.user;
+    let courseIds = [];
+
+    if (role === 'lecturer') {
+      const courses = await Course.findAll({
+        where: { lecturer_id: userId, is_active: true },
+        attributes: ['id']
+      });
+      courseIds = courses.map((course) => course.id);
+    } else if (role === 'student') {
+      const enrollments = await Enrollment.findAll({
+        where: { student_id: userId },
+        attributes: ['course_id']
+      });
+      courseIds = enrollments.map((enrollment) => enrollment.course_id);
+    }
+
+    const where = role === 'admin' ? {} : { course_id: courseIds };
+    const materials = await Material.findAll({ where, order: [['created_at', 'DESC']] });
+    res.json(materials);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
 // Upload learning material (lecturers only) — encrypted at rest
 router.post('/upload', ...guard, requireLecturer,
-  authorizeCourseAccess(req => req.body.course_id, { managerOnly: true }),
   (req, res, next) => { req.uploadFolder = 'materials'; next(); },
   upload.single('file'),
+  normalizeMaterialUploadBody,
+  authorizeCourseAccess(req => req.body.courseId, { managerOnly: true }),
   audit('UPLOAD_MATERIAL', 'material'),
   async (req, res) => {
     try {
-      const { course_id, title } = req.body;
+      const courseId = req.body.courseId;
+      const { title } = req.body;
       const encryptedPath = await encryptFile(req.file.path);
 
       const material = await Material.create({
-        course_id,
+        course_id: courseId,
         title,
         file_path: encryptedPath,
         file_name: req.file.originalname,

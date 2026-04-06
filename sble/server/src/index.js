@@ -21,6 +21,7 @@ const quizRoutes = require('./routes/quizzes');
 const examRoutes = require('./routes/exams');
 const roomRoutes = require('./routes/rooms');
 const notificationRoutes = require('./routes/notifications');
+const userRoutes = require('./routes/users');
 
 const app = express();
 const httpServer = createServer(app);
@@ -47,10 +48,30 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // Rate limiting
-app.use('/api/', rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  message: { error: 'Too many requests, please try again later.' }
+const apiWindowMs = Number.parseInt(process.env.RATE_LIMIT_WINDOW_MS || `${15 * 60 * 1000}`, 10);
+const apiMax = Number.parseInt(
+  process.env.RATE_LIMIT_MAX || (process.env.NODE_ENV === 'production' ? '100' : '1000'),
+  10
+);
+const authMax = Number.parseInt(
+  process.env.AUTH_RATE_LIMIT_MAX || (process.env.NODE_ENV === 'production' ? '30' : '300'),
+  10
+);
+
+const createLimiter = (max, options = {}) => rateLimit({
+  windowMs: apiWindowMs,
+  max,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+  ...options
+});
+
+// Keep auth protected but avoid accidental lockouts during active testing.
+app.use('/api/auth', createLimiter(authMax));
+app.use('/api', createLimiter(apiMax, {
+  // /api/auth has its own limiter policy above.
+  skip: (req) => req.path.startsWith('/auth/')
 }));
 
 // Session — Redis-backed in production, in-memory for local dev
@@ -82,6 +103,7 @@ app.use('/api/quizzes', quizRoutes);
 app.use('/api/exams', examRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/users', userRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));

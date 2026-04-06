@@ -2,33 +2,70 @@ import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useKeycloak } from '../auth/AuthProvider';
 import api from '../config/api';
+import { buildFileUploadFormData, triggerBlobDownload } from '../utils/fileTransfer';
 
 export default function Materials() {
-  const { id: courseId } = useParams();
+  const { courseId } = useParams();
   const { keycloak } = useKeycloak();
   const isLecturer = keycloak.hasRealmRole('lecturer') || keycloak.hasRealmRole('admin');
+  const isStudent = keycloak.hasRealmRole('student');
 
   const [materials, setMaterials] = useState([]);
   const [file, setFile] = useState(null);
   const [title, setTitle] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    api.get(`/materials/course/${courseId}`).then(r => setMaterials(r.data));
-  }, [courseId]);
+    const loadMaterials = async () => {
+      setLoading(true);
+      setError('');
+
+      try {
+        if (courseId && isStudent) {
+          const coursesRes = await api.get('/courses');
+          const visibleCourses = Array.isArray(coursesRes.data) ? coursesRes.data : [];
+          const hasAccess = visibleCourses.some((course) => String(course.id) === String(courseId));
+
+          if (!hasAccess) {
+            setMaterials([]);
+            setError('Access denied: you are not enrolled in this course or the course does not exist.');
+            return;
+          }
+        }
+
+        const endpoint = courseId ? `/materials/course/${courseId}` : '/materials';
+        const res = await api.get(endpoint);
+        setMaterials(Array.isArray(res.data) ? res.data : []);
+      } catch (err) {
+        setMaterials([]);
+        setError(resolveCourseAccessMessage(err, 'Failed to load materials.'));
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadMaterials();
+  }, [courseId, isStudent]);
 
   const handleUpload = async (e) => {
     e.preventDefault();
-    if (!file || !title) return;
+    if (!file || !title || !courseId) return;
     setUploading(true);
-    const form = new FormData();
-    form.append('file', file);
-    form.append('title', title);
-    form.append('course_id', courseId);
+    setError('');
+    const form = buildFileUploadFormData({
+      file,
+      courseId,
+      title
+    });
     try {
       const res = await api.post('/materials/upload', form);
-      setMaterials(prev => [...prev, res.data]);
-      setFile(null); setTitle('');
+      setMaterials((prev) => [res.data, ...prev]);
+      setFile(null);
+      setTitle('');
+    } catch (err) {
+      setError(err?.response?.data?.error || 'Failed to upload material.');
     } finally {
       setUploading(false);
     }
@@ -37,14 +74,7 @@ export default function Materials() {
   const downloadMaterial = async (materialId, fileName) => {
     try {
       const response = await api.get(`/materials/${materialId}/download`, { responseType: 'blob' });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = fileName || `material-${materialId}`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
+      triggerBlobDownload(response, fileName || `material-${materialId}`);
     } catch (_) {
       alert('Download failed');
     }
@@ -53,12 +83,14 @@ export default function Materials() {
   return (
     <div>
       <h2>Learning Materials</h2>
+      {loading && <p style={{ marginTop: 12, color: '#666' }}>Loading materials...</p>}
+      {error && <p style={{ marginTop: 12, color: '#c0392b' }}>{error}</p>}
 
       {isLecturer && (
         <form onSubmit={handleUpload} style={{ marginTop: 20, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Material title" required
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Material title" required
             style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #ddd', flex: 1 }} />
-          <input type="file" accept=".pdf,.doc,.docx,.jpg,.png" onChange={e => setFile(e.target.files[0])} required />
+          <input type="file" accept=".pdf,.doc,.docx,.jpg,.png" onChange={(e) => setFile(e.target.files?.[0] || null)} required />
           <button type="submit" disabled={uploading}
             style={{ background: '#4f8ef7', color: '#fff', padding: '8px 20px', borderRadius: 6, border: 'none', cursor: 'pointer' }}>
             {uploading ? 'Uploading...' : 'Upload'}
@@ -66,16 +98,29 @@ export default function Materials() {
         </form>
       )}
 
-      <ul style={{ marginTop: 24, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {materials.map(m => (
-          <li key={m.id} style={{ background: '#fff', padding: 16, borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.07)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>{m.title} <small style={{ color: '#aaa' }}>({m.file_name})</small></span>
-            <button onClick={() => downloadMaterial(m.id, m.file_name)}
+      <ul style={{ marginTop: 24, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10, padding: 0 }}>
+        {materials.map((material) => (
+          <li key={material.id} style={{ background: '#fff', padding: 16, borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.07)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+            <div>
+              <strong>{material.file_name || material.title}</strong>
+              <p style={{ color: '#666', marginTop: 4 }}>{material.title}</p>
+              <p style={{ color: '#98a2b3', fontSize: '0.82rem', marginTop: 4 }}>
+                Uploaded: {material.created_at ? new Date(material.created_at).toLocaleString() : 'Unknown date'}
+              </p>
+            </div>
+            <button onClick={() => downloadMaterial(material.id, material.file_name)}
               style={{ color: '#4f8ef7', fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer' }}>Download</button>
           </li>
         ))}
-        {materials.length === 0 && <p style={{ color: '#888' }}>No materials uploaded yet.</p>}
+        {!loading && materials.length === 0 && <p style={{ color: '#888' }}>No materials uploaded yet.</p>}
       </ul>
     </div>
   );
+}
+
+function resolveCourseAccessMessage(err, fallback) {
+  const status = err?.response?.status;
+  if (status === 403) return 'Access denied: you are not enrolled in this course.';
+  if (status === 404) return 'This course does not exist or is no longer available.';
+  return err?.response?.data?.error || fallback;
 }

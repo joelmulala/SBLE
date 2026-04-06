@@ -9,7 +9,8 @@ const Submission = sequelize.define('Submission', {
   file_name: { type: DataTypes.STRING },
   submission_type: { type: DataTypes.ENUM('typed', 'scanned', 'handwritten'), defaultValue: 'typed' },
   grade: { type: DataTypes.DECIMAL(5, 2) },
-  feedback: { type: DataTypes.TEXT }
-}, { tableName: 'submissions', timestamps: true, createdAt: 'submitted_at', updatedAt: false });
+  feedback: { type: DataTypes.TEXT },
+  last_updated_time: { type: DataTypes.DATE, allowNull: true }
+}, { tableName: 'submissions', timestamps: true, createdAt: 'submitted_at', updatedAt: 'last_updated_time' });
 
 module.exports = Submission;
