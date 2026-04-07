@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { useKeycloak } from './auth/AuthProvider';
 
 import Layout from './components/Layout';
@@ -49,6 +49,25 @@ function HomeRoute() {
   return <Navigate to="/student/dashboard" replace />;
 }
 
+function CoursesRouteRedirect() {
+  const { keycloak, initialized } = useKeycloak();
+
+  if (!initialized) return <div style={{ padding: 32 }}>Loading...</div>;
+
+  const isLecturer = keycloak.hasRealmRole('lecturer') || keycloak.hasRealmRole('admin');
+  return <Navigate to={isLecturer ? '/lecturer/courses' : '/student/courses'} replace />;
+}
+
+function CourseDetailRouteRedirect() {
+  const { keycloak, initialized } = useKeycloak();
+  const { id } = useParams();
+
+  if (!initialized) return <div style={{ padding: 32 }}>Loading...</div>;
+
+  const isLecturer = keycloak.hasRealmRole('lecturer') || keycloak.hasRealmRole('admin');
+  return <Navigate to={isLecturer ? `/lecturer/courses/${id}` : `/student/courses/${id}`} replace />;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -60,6 +79,7 @@ export default function App() {
           <Route path="lecturer" element={<ProtectedRoute roles={['lecturer', 'admin']}><Navigate to="/lecturer/dashboard" replace /></ProtectedRoute>} />
           <Route path="lecturer/dashboard" element={<ProtectedRoute roles={['lecturer', 'admin']}><Dashboard /></ProtectedRoute>} />
           <Route path="lecturer/courses" element={<ProtectedRoute roles={['lecturer', 'admin']}><LecturerCoursesPage /></ProtectedRoute>} />
+          <Route path="lecturer/courses/:courseId" element={<ProtectedRoute roles={['lecturer', 'admin']}><CourseDetail /></ProtectedRoute>} />
           <Route path="lecturer/enrollment" element={<ProtectedRoute roles={['lecturer', 'admin']}><LecturerEnrollmentPage /></ProtectedRoute>} />
           <Route path="lecturer/assignments" element={<ProtectedRoute roles={['lecturer', 'admin']}><LecturerAssignmentsPage /></ProtectedRoute>} />
           <Route path="lecturer/quizzes" element={<ProtectedRoute roles={['lecturer', 'admin']}><LecturerQuizzesPage /></ProtectedRoute>} />
@@ -77,8 +97,8 @@ export default function App() {
           <Route path="student/courses/:courseId/assignments" element={<ProtectedRoute roles={['student']}><Assignments /></ProtectedRoute>} />
           <Route path="student/courses/:courseId/quizzes" element={<ProtectedRoute roles={['student']}><Quizzes /></ProtectedRoute>} />
           <Route path="student/courses/:courseId/exams" element={<ProtectedRoute roles={['student']}><Exams /></ProtectedRoute>} />
-          <Route path="courses" element={<Courses />} />
-          <Route path="courses/:id" element={<CourseDetail />} />
+          <Route path="courses" element={<CoursesRouteRedirect />} />
+          <Route path="courses/:id" element={<CourseDetailRouteRedirect />} />
           <Route path="lecturer/courses/:courseId/materials" element={<ProtectedRoute roles={['lecturer', 'admin']}><LecturerMaterialsPage /></ProtectedRoute>} />
           <Route path="lecturer/courses/:courseId/assignments" element={<ProtectedRoute roles={['lecturer', 'admin']}><Assignments /></ProtectedRoute>} />
           <Route path="lecturer/courses/:courseId/quizzes" element={<ProtectedRoute roles={['lecturer', 'admin']}><Quizzes /></ProtectedRoute>} />

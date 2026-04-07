@@ -12,6 +12,7 @@ export default function Assignments() {
 
   const [assignments, setAssignments] = useState([]);
   const [form, setForm] = useState({ title: '', description: '', due_date: '' });
+  const [assignmentFile, setAssignmentFile] = useState(null);
   const [submitFile, setSubmitFile] = useState({});
   const [submittingId, setSubmittingId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
@@ -20,6 +21,8 @@ export default function Assignments() {
   const [submissionsError, setSubmissionsError] = useState('');
   const [loadingSubmissionsId, setLoadingSubmissionsId] = useState(null);
   const [downloadingSubmissionId, setDownloadingSubmissionId] = useState(null);
+  const [downloadingAssignmentId, setDownloadingAssignmentId] = useState(null);
+  const [creatingAssignment, setCreatingAssignment] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -66,12 +69,36 @@ export default function Assignments() {
 
   const createAssignment = async (e) => {
     e.preventDefault();
+
+    if (!form.title.trim()) {
+      setError('Please enter an assignment title.');
+      return;
+    }
+
+    setCreatingAssignment(true);
+    setMessage('');
+    setError('');
+
     try {
-      const res = await api.post('/assignments', { ...form, course_id: courseId });
+      const payload = buildFileUploadFormData({
+        file: assignmentFile,
+        courseId,
+        title: form.title,
+        fields: {
+          description: form.description.trim(),
+          due_date: form.due_date || null
+        }
+      });
+
+      const res = await api.post('/assignments', payload);
       setAssignments((prev) => [res.data, ...prev]);
       setForm({ title: '', description: '', due_date: '' });
+      setAssignmentFile(null);
+      setMessage(assignmentFile ? 'Assignment created and file uploaded successfully.' : 'Assignment created successfully.');
     } catch (err) {
       setError(err?.response?.data?.error || 'Failed to create assignment.');
+    } finally {
+      setCreatingAssignment(false);
     }
   };
 
@@ -167,6 +194,21 @@ export default function Assignments() {
     }
   };
 
+  const downloadAssignmentFile = async (assignmentId, fileName) => {
+    setDownloadingAssignmentId(assignmentId);
+    setMessage('');
+    setError('');
+
+    try {
+      const response = await api.get(`/assignments/${assignmentId}/download`, { responseType: 'blob' });
+      triggerBlobDownload(response, fileName || `assignment-${assignmentId}`);
+    } catch (err) {
+      setMessage(err?.response?.data?.error || 'Failed to download assignment file.');
+    } finally {
+      setDownloadingAssignmentId(null);
+    }
+  };
+
   return (
     <div>
       <h2>Assignments</h2>
@@ -182,8 +224,18 @@ export default function Assignments() {
             style={{ ...inputStyle, resize: 'vertical' }} />
           <input type="datetime-local" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })}
             style={inputStyle} />
-          <button type="submit" style={primaryButtonStyle}>
-            Create Assignment
+          <div style={{ display: 'grid', gap: 6 }}>
+            <input
+              type="file"
+              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+              onChange={(e) => setAssignmentFile(e.target.files?.[0] || null)}
+            />
+            <span style={{ color: '#667085', fontSize: '0.84rem' }}>
+              Optional: attach the assignment file for students to download.
+            </span>
+          </div>
+          <button type="submit" style={primaryButtonStyle} disabled={creatingAssignment}>
+            {creatingAssignment ? 'Creating...' : assignmentFile ? 'Create & Upload Assignment' : 'Create Assignment'}
           </button>
         </form>
       )}
@@ -198,6 +250,19 @@ export default function Assignments() {
               <h3 style={{ marginTop: 0 }}>{assignment.title}</h3>
               <p style={{ color: '#666', marginTop: 4 }}>{assignment.description}</p>
               {assignment.due_date && <p style={{ color: '#98a2b3', fontSize: '0.85rem', marginTop: 4 }}>Due: {new Date(assignment.due_date).toLocaleString()}</p>}
+              {assignment.file_name && (
+                <div style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ color: '#475467', fontSize: '0.88rem' }}>Attached file: {assignment.file_name}</span>
+                  <button
+                    type="button"
+                    onClick={() => downloadAssignmentFile(assignment.id, assignment.file_name)}
+                    disabled={downloadingAssignmentId === assignment.id}
+                    style={primaryButtonStyle}
+                  >
+                    {downloadingAssignmentId === assignment.id ? 'Downloading...' : 'Download Assignment'}
+                  </button>
+                </div>
+              )}
 
               {isLecturer && (
                 <div style={{ marginTop: 12 }}>
@@ -215,7 +280,7 @@ export default function Assignments() {
                       {loadingSubmissionsId === assignment.id ? (
                         <p style={{ color: '#666', margin: 0 }}>Loading submissions...</p>
                       ) : (submissionsByAssignment[assignment.id] || []).length === 0 ? (
-                        <p style={{ color: '#888', margin: 0 }}>No current submissions</p>
+                        <p style={{ color: '#888', margin: 0 }}>No submissions yet</p>
                       ) : (
                         (submissionsByAssignment[assignment.id] || []).map((entry) => (
                           <div key={entry.id} style={{ background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 8, padding: 12, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>

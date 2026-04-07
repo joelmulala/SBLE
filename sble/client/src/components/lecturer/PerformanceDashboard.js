@@ -1,5 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import api from '../../config/api';
+import React, { useMemo } from 'react';
 import PerformanceBarChart from './PerformanceBarChart';
 import DistributionPieChart from './DistributionPieChart';
 
@@ -17,28 +16,7 @@ const categoryColor = {
   Red: '#e74c3c'
 };
 
-export default function PerformanceDashboard({ courseId }) {
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    const loadPerformance = async () => {
-      if (!courseId) return;
-      setLoading(true);
-      setError('');
-      try {
-        const res = await api.get(`/courses/${courseId}/performance`);
-        setRows(Array.isArray(res.data?.performance) ? res.data.performance : []);
-      } catch (err) {
-        setError(err?.response?.data?.error || 'Failed to load performance');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadPerformance();
-  }, [courseId]);
+export default function PerformanceDashboard({ rows = [], loading = false, error = '' }) {
 
   const summary = useMemo(() => {
     const counts = { Green: 0, Orange: 0, Red: 0 };
@@ -71,7 +49,7 @@ export default function PerformanceDashboard({ courseId }) {
       {loading && <p style={{ marginTop: 12 }}>Loading performance...</p>}
       {error && <p style={{ marginTop: 12, color: '#c0392b' }}>{error}</p>}
 
-      {!loading && !error && (
+      {!loading && !error && rows.length > 0 && (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 1.4fr) repeat(2, minmax(240px, 1fr))', gap: 12, marginTop: 12, alignItems: 'stretch' }}>
             <div style={{ ...panelStyle, height: '100%' }}>
@@ -107,15 +85,14 @@ export default function PerformanceDashboard({ courseId }) {
                     </td>
                   </tr>
                 ))}
-                {rows.length === 0 && (
-                  <tr>
-                    <td colSpan={3} style={{ paddingTop: 12, color: '#777' }}>No student performance data yet.</td>
-                  </tr>
-                )}
               </tbody>
             </table>
           </div>
         </>
+      )}
+
+      {!loading && !error && rows.length === 0 && (
+        <p style={{ marginTop: 12, color: '#777' }}>No performance data available</p>
       )}
     </div>
   );

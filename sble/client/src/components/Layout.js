@@ -11,6 +11,39 @@ export default function Layout() {
   const isAdmin = keycloak.hasRealmRole('admin');
   const isLecturer = keycloak.hasRealmRole('lecturer') || keycloak.hasRealmRole('admin');
 
+  const lecturerNavItems = [
+    {
+      to: '/lecturer/courses',
+      label: 'Courses',
+      end: true,
+      matchRoutes: [/^\/lecturer\/courses\/[^/]+(?:\/)?$/]
+    },
+    {
+      to: '/lecturer/materials',
+      label: 'Materials',
+      matchRoutes: [/^\/lecturer\/courses\/[^/]+\/materials(?:\/)?$/]
+    },
+    {
+      to: '/lecturer/assignments',
+      label: 'Assignments',
+      matchRoutes: [/^\/lecturer\/courses\/[^/]+\/assignments(?:\/)?$/]
+    },
+    {
+      to: '/lecturer/quizzes',
+      label: 'Quizzes',
+      matchRoutes: [
+        '/lecturer/exams',
+        /^\/lecturer\/courses\/[^/]+\/quizzes(?:\/)?$/,
+        /^\/lecturer\/courses\/[^/]+\/exams(?:\/)?$/
+      ]
+    },
+    {
+      to: '/lecturer/performance',
+      label: 'Performance',
+      matchRoutes: [/^\/lecturer\/courses\/[^/]+\/performance(?:\/)?$/]
+    }
+  ];
+
   return (
     <div className={styles.shell}>
       <nav className={styles.sidebar}>
@@ -21,20 +54,13 @@ export default function Layout() {
         </SidebarGroup>
 
         {isLecturer ? (
-          <>
-            <SidebarGroup label="ACADEMIC">
-              <NavItem to="/lecturer/courses" end icon="📚">Courses</NavItem>
-              <NavItem to="/lecturer/enrollment" icon="👥" matchRoutes={[/^\/lecturer\/courses\/[^/]+\/enrollment(?:\/)?$/]}>Enrollment</NavItem>
-              <NavItem to="/lecturer/assignments" icon="📝" matchRoutes={[/^\/lecturer\/courses\/[^/]+\/assignments(?:\/)?$/]}>Assignments</NavItem>
-              <NavItem to="/lecturer/quizzes" icon="🧪" matchRoutes={[/^\/lecturer\/courses\/[^/]+\/quizzes(?:\/)?$/]}>Quizzes</NavItem>
-              <NavItem to="/lecturer/exams" icon="📄" matchRoutes={[/^\/lecturer\/courses\/[^/]+\/exams(?:\/)?$/]}>Exams</NavItem>
-              <NavItem to="/lecturer/materials" icon="📁" matchRoutes={[/^\/lecturer\/courses\/[^/]+\/materials(?:\/)?$/]}>Materials</NavItem>
-            </SidebarGroup>
-
-            <SidebarGroup label="ANALYTICS">
-              <NavItem to="/lecturer/performance" icon="📈" matchRoutes={[/^\/lecturer\/courses\/[^/]+\/performance(?:\/)?$/]}>Performance</NavItem>
-            </SidebarGroup>
-          </>
+          <div className={styles.lecturerNav}>
+            {lecturerNavItems.map((item) => (
+              <NavItem key={item.to} to={item.to} end={item.end} matchRoutes={item.matchRoutes}>
+                {item.label}
+              </NavItem>
+            ))}
+          </div>
         ) : (
           <SidebarGroup label="ACADEMIC">
             <NavItem to="/student/courses" end icon="📚" matchRoutes={[/^\/student\/courses\/[^/]+(?:\/)?$/]}>Courses</NavItem>
@@ -142,7 +168,7 @@ function NavItem({ to, children, icon, end = false, matchRoutes = [] }) {
 
   return (
     <NavLink to={to} end={end} className={isActive ? styles.active : ''}>
-      <span style={{ marginRight: 8 }}>{icon}</span>
+      {icon ? <span style={{ marginRight: 8 }}>{icon}</span> : null}
       {children}
     </NavLink>
   );

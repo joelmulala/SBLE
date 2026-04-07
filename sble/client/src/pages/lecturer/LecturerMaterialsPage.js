@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import api from '../../config/api';
 import MaterialsUploadPanel from '../../components/lecturer/MaterialsUploadPanel';
 
@@ -62,7 +62,7 @@ export default function LecturerMaterialsPage() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <div>
-          <h2>Materials</h2>
+          <h2 style={{ marginBottom: 6 }}>Materials</h2>
           <p style={{ color: '#666', marginTop: 6 }}>
             {isDetailRoute ? 'Upload and manage materials for this course.' : 'View uploaded materials across your lecturer-managed courses.'}
           </p>
@@ -70,21 +70,39 @@ export default function LecturerMaterialsPage() {
 
         <button
           type="button"
-          onClick={() => setShowUploader((prev) => !prev)}
+          onClick={() => setShowUploader(true)}
           style={{ background: '#4f8ef7', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 14px', cursor: 'pointer', fontWeight: 600 }}
         >
-          {showUploader ? 'Close Form' : 'Add Material'}
+          Upload Material
         </button>
       </div>
 
       {showUploader && (
-        <div style={{ marginTop: 18 }}>
-          <MaterialsUploadPanel
-            courseId={courseId}
-            courses={courses}
-            onUploaded={handleUploaded}
-            onCancel={() => setShowUploader(false)}
-          />
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.45)',
+            display: 'grid',
+            placeItems: 'center',
+            padding: 16,
+            zIndex: 1000
+          }}
+          onClick={() => setShowUploader(false)}
+        >
+          <div
+            style={{ width: '100%', maxWidth: 620 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <MaterialsUploadPanel
+              courseId={courseId}
+              courses={courses}
+              onUploaded={handleUploaded}
+              onCancel={() => setShowUploader(false)}
+            />
+          </div>
         </div>
       )}
 
@@ -99,36 +117,11 @@ export default function LecturerMaterialsPage() {
             <p style={{ color: '#555', fontSize: '0.85rem', marginTop: 8 }}>
               Course: {courseNameById[String(material.course_id)] || `Course #${material.course_id}`}
             </p>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
-              <Link to={`/lecturer/courses/${material.course_id}/materials`} style={primaryLinkStyle}>Open Materials</Link>
-              <Link to={`/lecturer/courses/${material.course_id}/assignments`} style={secondaryLinkStyle}>View Assignments</Link>
-            </div>
           </div>
         ))}
       </div>
 
-      {!loading && visibleMaterials.length === 0 && <p style={{ color: '#888', marginTop: 14 }}>No materials available.</p>}
+      {!loading && visibleMaterials.length === 0 && <p style={{ color: '#888', marginTop: 14 }}>No materials uploaded</p>}
     </div>
   );
 }
-
-const primaryLinkStyle = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  textDecoration: 'none',
-  background: '#4f8ef7',
-  color: '#fff',
-  borderRadius: 8,
-  padding: '8px 12px',
-  minHeight: 38,
-  fontWeight: 600,
-  fontSize: '0.85rem'
-};
-
-const secondaryLinkStyle = {
-  ...primaryLinkStyle,
-  background: '#fff',
-  color: '#344054',
-  border: '1px solid #d0d5dd'
-};

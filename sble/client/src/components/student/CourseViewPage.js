@@ -64,9 +64,10 @@ export default function CourseViewPage({ courseId }) {
           </div>
 
           <div style={{ display: 'flex', gap: 12, marginTop: 20, flexWrap: 'wrap' }}>
-            <Link to="/student/materials" style={linkButtonStyle}>View Materials</Link>
-            <Link to="/student/assignments" style={linkButtonStyle}>View Assignments</Link>
-            <Link to="/student/quizzes" style={linkButtonStyle}>Take Quiz</Link>
+            <Link to={`/student/courses/${courseId}/materials`} style={linkButtonStyle}>View Materials</Link>
+            <Link to={`/student/courses/${courseId}/assignments`} style={linkButtonStyle}>View Assignments</Link>
+            <Link to={`/student/courses/${courseId}/quizzes`} style={linkButtonStyle}>Take Quiz</Link>
+            <Link to={`/student/courses/${courseId}/exams`} style={linkButtonStyle}>View Exams</Link>
           </div>
         </>
       )}

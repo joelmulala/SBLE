@@ -21,6 +21,7 @@ export default function CourseDetail() {
   }
 
   const sections = [
+    { label: 'Enrollment', path: 'enrollment', color: '#0f766e' },
     { label: 'Materials', path: 'materials', color: '#4f8ef7' },
     { label: 'Assignments', path: 'assignments', color: '#28a745' },
     { label: 'Quizzes', path: 'quizzes', color: '#e67e22' },

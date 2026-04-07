@@ -13,15 +13,32 @@
 
 .logo { font-size: 1.4rem; font-weight: 700; color: #4f8ef7; margin-bottom: 24px; }
 
-.sidebar a {
-  color: #aab4d4;
-  padding: 10px 12px;
-  border-radius: 6px;
-  font-size: 0.95rem;
-  transition: background 0.2s;
+.lecturerNav {
+  display: grid;
+  gap: 6px;
+  margin-top: 18px;
 }
 
-.sidebar a:hover, .active { background: #2d3561; color: #fff; }
+.sidebar a {
+  color: #aab4d4;
+  padding: 11px 12px;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  border-left: 3px solid transparent;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.sidebar a:hover {
+  background: #273157;
+  color: #f8fbff;
+}
+
+.active {
+  background: #2d3561;
+  color: #fff;
+  border-left-color: #4f8ef7;
+}
 
 .logout {
   margin-top: auto;

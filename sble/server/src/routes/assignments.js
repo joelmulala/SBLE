@@ -33,6 +33,34 @@ const getLatestSubmission = async (assignmentId, studentId) => Submission.findOn
   order: [['last_updated_time', 'DESC'], ['submitted_at', 'DESC']]
 });
 
+const normalizeCourseId = (payload = {}) => {
+  const rawValue = payload.courseId ?? payload.course_id;
+  const parsed = Number(rawValue);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
+
+const normalizeAssignmentPayload = (req, res, next) => {
+  const courseId = normalizeCourseId(req.body);
+
+  if (!courseId) {
+    return res.status(400).json({ error: 'courseId is required' });
+  }
+
+  req.body.courseId = courseId;
+  req.body.course_id = courseId;
+  next();
+};
+
+const parseBoolean = (value, fallback = true) => {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value === 'boolean') return value;
+
+  const normalized = String(value).trim().toLowerCase();
+  if (['true', '1', 'yes'].includes(normalized)) return true;
+  if (['false', '0', 'no'].includes(normalized)) return false;
+  return fallback;
+};
+
 // List assignments visible to the current user
 router.get('/', ...guard, async (req, res) => {
   try {
@@ -61,20 +89,78 @@ router.get('/', ...guard, async (req, res) => {
   }
 });
 
-// Create assignment
-router.post('/', ...guard, requireLecturer, authorizeCourseAccess(req => req.body.course_id, { managerOnly: true }), async (req, res) => {
-  try {
-    const { course_id, title, description, due_date, allows_handwritten } = req.body;
-    const assignment = await Assignment.create({
-      course_id, title, description, due_date,
-      allows_handwritten: allows_handwritten ?? true,
-      created_by: req.user.id
-    });
-    res.status(201).json(assignment);
-  } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
+// Create assignment with optional attachment
+router.post('/', ...guard, requireLecturer,
+  (req, res, next) => { req.uploadFolder = 'assignments'; next(); },
+  upload.single('file'),
+  normalizeAssignmentPayload,
+  authorizeCourseAccess(req => req.body.course_id, { managerOnly: true }),
+  async (req, res) => {
+    let encryptedPath = null;
+
+    try {
+      const { course_id, title, description, due_date, allows_handwritten } = req.body;
+
+      if (req.file?.path) {
+        encryptedPath = await encryptFile(req.file.path);
+      }
+
+      const assignment = await Assignment.create({
+        course_id,
+        title,
+        description,
+        due_date: due_date || null,
+        file_path: encryptedPath,
+        file_name: req.file?.originalname || null,
+        file_type: req.file?.mimetype || null,
+        is_encrypted: Boolean(encryptedPath),
+        allows_handwritten: parseBoolean(allows_handwritten, true),
+        created_by: req.user.id
+      });
+
+      res.status(201).json(assignment);
+    } catch (err) {
+      if (req.file?.path && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+      if (encryptedPath && fs.existsSync(encryptedPath)) {
+        fs.unlinkSync(encryptedPath);
+      }
+      res.status(err.status || 500).json({ error: err.message });
+    }
   }
-});
+);
+
+router.get('/:id/download', ...guard,
+  authorizeCourseAccess(async (req) => {
+    const assignment = await Assignment.findByPk(req.params.id);
+    if (!assignment) {
+      const err = new Error('Assignment not found');
+      err.status = 404;
+      throw err;
+    }
+    req.assignment = assignment;
+    return assignment.course_id;
+  }),
+  audit('DOWNLOAD_ASSIGNMENT', 'assignment'),
+  async (req, res) => {
+    try {
+      const assignment = req.assignment;
+
+      if (!assignment.file_path || !fs.existsSync(assignment.file_path)) {
+        return res.status(404).json({ error: 'No assignment file is available for download' });
+      }
+
+      const fileName = assignment.file_name || `assignment-${assignment.id}`;
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      res.setHeader('Content-Type', assignment.file_type || 'application/octet-stream');
+
+      await decryptFileToStream(assignment.file_path, res);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  }
+);
 
 // Get assignments for a course
 router.get('/course/:courseId', ...guard, authorizeCourseAccess(req => req.params.courseId), async (req, res) => {
@@ -262,7 +348,7 @@ router.get('/submissions/:id/download', ...guard, requireLecturer,
   }
 });
 
-// List submissions after deadline (lecturers only)
+// List submissions anytime for the assigned lecturer/admin
 router.get('/:id/submissions', ...guard, requireLecturer,
   authorizeCourseAccess(async (req) => {
     const assignment = await Assignment.findByPk(req.params.id);
@@ -276,12 +362,6 @@ router.get('/:id/submissions', ...guard, requireLecturer,
   }, { managerOnly: true, managerMessage: 'Forbidden: only the assigned lecturer or admin can view these submissions' }),
   async (req, res) => {
     try {
-      const assignment = req.assignment;
-
-      if (!isDeadlinePassed(assignment)) {
-        return res.status(403).json({ error: 'Submissions cannot be viewed until the deadline has passed' });
-      }
-
       const submissions = await Submission.findAll({
         where: { assignment_id: req.params.id },
         include: [{ model: User, as: 'student', attributes: ['id', 'full_name', 'email'] }],

@@ -131,9 +131,15 @@ export default function LecturerPerformancePage() {
           </div>
 
           <div style={{ marginTop: 20 }}>
-            <PerformanceDashboard courseId={courseId} />
+            <PerformanceDashboard rows={performanceRows} loading={loading} error={error} />
           </div>
         </>
+      )}
+
+      {!loading && isDetailRoute && !error && performanceRows.length === 0 && (
+        <div style={{ ...cardStyle, marginTop: 18 }}>
+          <p style={{ margin: 0, color: '#777' }}>No performance data available</p>
+        </div>
       )}
     </div>
   );

@@ -99,17 +99,17 @@ const decorateExam = (exam) => {
 };
 
 const ensureExamWindowOpenForStudent = (exam) => {
-  const { startTime, endTime } = getExamWindow(exam);
-  const now = Date.now();
+  const now = new Date();
+  const start = new Date(exam.start_time || exam.scheduled_at);
+  const end = new Date(start.getTime() + Number(exam.duration_minutes || 0) * 60000);
 
-  if (startTime && now < startTime.getTime()) {
-    const err = new Error('Exam has not started yet');
-    err.status = 403;
-    throw err;
-  }
-
-  if (endTime && now >= endTime.getTime()) {
-    const err = new Error('Exam access window has ended');
+  if (
+    Number.isNaN(start.getTime())
+    || Number.isNaN(end.getTime())
+    || now < start
+    || now > end
+  ) {
+    const err = new Error('Exam not available');
     err.status = 403;
     throw err;
   }

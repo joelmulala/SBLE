@@ -63,6 +63,7 @@ export default function Quizzes() {
   const [submitting, setSubmitting] = useState(false);
 
   const draftQuizId = searchParams.get('draftQuizId');
+  const createMode = searchParams.get('create') === '1';
   const draftQuizTarget = useMemo(
     () => quizzes.find((quiz) => String(quiz.id) === String(draftQuizId)) || null,
     [quizzes, draftQuizId]
@@ -104,6 +105,13 @@ export default function Quizzes() {
       cancelled = true;
     };
   }, [draftQuizId, isLecturer]);
+
+  useEffect(() => {
+    if (isLecturer && createMode && !draftQuizId) {
+      setCreating(true);
+      setQuestions((prev) => prev.length ? prev : [createEmptyQuestion()]);
+    }
+  }, [createMode, draftQuizId, isLecturer]);
 
   useEffect(() => {
     const loadQuizzes = async () => {
@@ -264,6 +272,11 @@ export default function Quizzes() {
         return;
       }
 
+      if (normalizedQuestions.length === 0) {
+        setError('Add at least one question before saving.');
+        return;
+      }
+
       const payload = {
         ...form,
         course_id: courseId,
@@ -272,14 +285,8 @@ export default function Quizzes() {
       const res = await api.post('/quizzes', payload);
       setQuizzes((prev) => [...prev, res.data]);
 
-      if (normalizedQuestions.length === 0) {
-        setQuestions([createEmptyQuestion()]);
-        setSearchParams({ draftQuizId: String(res.data.id) });
-        setCreating(true);
-        return;
-      }
-
       setCreating(false);
+      setSearchParams({});
       setForm({ title: '', time_limit_minutes: 30 });
       setQuestions([createEmptyQuestion()]);
     } catch (err) {

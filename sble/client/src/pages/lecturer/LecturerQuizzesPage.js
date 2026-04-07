@@ -14,10 +14,10 @@ export default function LecturerQuizzesPage() {
   const navigate = useNavigate();
   const [quizzes, setQuizzes] = useState([]);
   const [courses, setCourses] = useState([]);
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ course_id: '', title: '', time_limit_minutes: 30, scheduled_at: '' });
+  const [questionCounts, setQuestionCounts] = useState({});
+  const [showCoursePicker, setShowCoursePicker] = useState(false);
+  const [selectedCourseId, setSelectedCourseId] = useState('');
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -30,11 +30,26 @@ export default function LecturerQuizzesPage() {
           api.get('/courses')
         ]);
 
-        setQuizzes(Array.isArray(quizzesRes.data) ? quizzesRes.data : []);
-        setCourses(Array.isArray(coursesRes.data) ? coursesRes.data : []);
+        const quizRows = Array.isArray(quizzesRes.data) ? quizzesRes.data : [];
+        const courseRows = Array.isArray(coursesRes.data) ? coursesRes.data : [];
+
+        setQuizzes(quizRows);
+        setCourses(courseRows);
+
+        const countEntries = await Promise.all(quizRows.map(async (quiz) => {
+          try {
+            const res = await api.get(`/quizzes/${quiz.id}/questions`);
+            return [quiz.id, Array.isArray(res.data) ? res.data.length : 0];
+          } catch (_) {
+            return [quiz.id, Number(quiz.question_count) || 0];
+          }
+        }));
+
+        setQuestionCounts(Object.fromEntries(countEntries));
       } catch (err) {
         setQuizzes([]);
         setCourses([]);
+        setQuestionCounts({});
         setError(err?.response?.data?.error || 'Failed to load quizzes');
       } finally {
         setLoading(false);
@@ -48,124 +63,96 @@ export default function LecturerQuizzesPage() {
     courses.map((course) => [String(course.id), course.title])
   ), [courses]);
 
-  const createQuiz = async (e) => {
-    e.preventDefault();
-
-    if (!form.course_id) {
-      setError('Please select a course.');
+  const openQuizBuilder = () => {
+    if (!selectedCourseId) {
+      setError('Please select a course first.');
       return;
     }
 
-    setSaving(true);
     setError('');
-    try {
-      const res = await api.post('/quizzes', {
-        course_id: form.course_id,
-        title: form.title.trim(),
-        time_limit_minutes: Number(form.time_limit_minutes) || 30,
-        scheduled_at: form.scheduled_at || null,
-        questions: []
-      });
-
-      setQuizzes((prev) => [res.data, ...prev]);
-      setForm({ course_id: '', title: '', time_limit_minutes: 30, scheduled_at: '' });
-      setShowForm(false);
-      navigate(`/lecturer/courses/${res.data.course_id}/quizzes?draftQuizId=${res.data.id}`);
-    } catch (err) {
-      setError(err?.response?.data?.error || 'Failed to create quiz');
-    } finally {
-      setSaving(false);
-    }
+    navigate(`/lecturer/courses/${selectedCourseId}/quizzes?create=1`);
   };
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <div>
-          <h2>Quizzes</h2>
-          <p style={{ color: '#666', marginTop: 6 }}>Review quiz activity across your lecturer-managed courses.</p>
+          <h2 style={{ marginBottom: 6 }}>Quizzes</h2>
+          <p style={{ color: '#667085', margin: 0 }}>Browse quiz summaries and open each quiz for full details and question management.</p>
         </div>
-        <button type="button" onClick={() => setShowForm((prev) => !prev)} style={actionButtonStyle}>
-          {showForm ? 'Close Form' : 'Add New'}
+        <button type="button" onClick={() => setShowCoursePicker((prev) => !prev)} style={actionButtonStyle}>
+          {showCoursePicker ? 'Close' : 'Create Quiz'}
         </button>
       </div>
 
-      {showForm && (
-        <form onSubmit={createQuiz} style={{ ...cardStyle, marginTop: 18, display: 'grid', gap: 10 }}>
-          <select
-            value={form.course_id}
-            onChange={(e) => setForm((prev) => ({ ...prev, course_id: e.target.value }))}
-            required
-            style={inputStyle}
-          >
-            <option value="">Select course</option>
-            {courses.map((course) => (
-              <option key={course.id} value={course.id}>{course.title}</option>
-            ))}
-          </select>
-          <input
-            value={form.title}
-            onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
-            placeholder="Quiz title"
-            required
-            style={inputStyle}
-          />
-          <input
-            type="datetime-local"
-            value={form.scheduled_at}
-            onChange={(e) => setForm((prev) => ({ ...prev, scheduled_at: e.target.value }))}
-            style={inputStyle}
-          />
-          <input
-            type="number"
-            min="1"
-            value={form.time_limit_minutes}
-            onChange={(e) => setForm((prev) => ({ ...prev, time_limit_minutes: e.target.value }))}
-            placeholder="Time limit in minutes"
-            style={inputStyle}
-          />
-          <button type="submit" disabled={saving} style={actionButtonStyle}>
-            {saving ? 'Saving...' : 'Create Quiz'}
-          </button>
-        </form>
+      {showCoursePicker && (
+        <div style={{ ...cardStyle, marginTop: 18, maxWidth: 520 }}>
+          <h3 style={{ marginTop: 0 }}>Open Quiz Builder</h3>
+          <p style={{ color: '#667085', marginTop: 6 }}>
+            Select a course to create a quiz. At least one question is required before saving.
+          </p>
+          <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
+            <select
+              value={selectedCourseId}
+              onChange={(e) => setSelectedCourseId(e.target.value)}
+              style={inputStyle}
+            >
+              <option value="">Select course</option>
+              {courses.map((course) => (
+                <option key={course.id} value={course.id}>{course.title}</option>
+              ))}
+            </select>
+            <button type="button" onClick={openQuizBuilder} style={actionButtonStyle}>
+              Open Quiz Details
+            </button>
+          </div>
+        </div>
       )}
 
       {error && <p style={{ color: '#c0392b', marginTop: 12 }}>{error}</p>}
       {loading && <p style={{ marginTop: 12 }}>Loading quizzes...</p>}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px,1fr))', gap: 16, marginTop: 18 }}>
-        {quizzes.map((quiz) => (
-          <div key={quiz.id} style={cardStyle}>
-            <strong>{quiz.title}</strong>
-            <p style={{ color: '#666', fontSize: '0.88rem', marginTop: 6 }}>
-              Course: {courseNameById[String(quiz.course_id)] || `Course #${quiz.course_id}`}
-            </p>
-            <p style={{ color: '#555', fontSize: '0.85rem', marginTop: 8 }}>
-              Status: {quiz.is_published ? 'Published' : 'Draft'}
-            </p>
-            <p style={{ color: '#555', fontSize: '0.85rem', marginTop: 4 }}>
-              Window: {formatDateTime(quiz.start_time || quiz.created_at)} → {formatDateTime(quiz.end_time)}
-            </p>
-
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
-              <Link to={`/lecturer/courses/${quiz.course_id}/quizzes?draftQuizId=${quiz.id}`} style={primaryLinkStyle}>
-                Manage Questions
-              </Link>
-              <Link to={`/lecturer/courses/${quiz.course_id}/assignments`} style={secondaryLinkStyle}>View Assignments</Link>
-            </div>
-          </div>
-        ))}
+      <div style={{ ...cardStyle, marginTop: 18, padding: 0, overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              <th style={headerCellStyle}>Quiz</th>
+              <th style={headerCellStyle}>Course</th>
+              <th style={headerCellStyle}>Status</th>
+              <th style={headerCellStyle}>Questions</th>
+              <th style={headerCellStyle}>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {quizzes.map((quiz) => (
+              <tr key={quiz.id}>
+                <td style={cellStyle}>
+                  <div style={{ fontWeight: 600, color: '#111827' }}>{quiz.title}</div>
+                </td>
+                <td style={cellStyle}>{courseNameById[String(quiz.course_id)] || `Course #${quiz.course_id}`}</td>
+                <td style={cellStyle}>
+                  <span style={{ color: quiz.is_published ? '#16a34a' : '#b54708', fontWeight: 600 }}>
+                    {quiz.is_published ? 'Published' : 'Draft'}
+                  </span>
+                </td>
+                <td style={cellStyle}>{questionCounts[quiz.id] ?? Number(quiz.question_count) ?? 0}</td>
+                <td style={cellStyle}>
+                  <Link to={`/lecturer/courses/${quiz.course_id}/quizzes?draftQuizId=${quiz.id}`} style={primaryLinkStyle}>
+                    Open Details
+                  </Link>
+                </td>
+              </tr>
+            ))}
+            {!loading && quizzes.length === 0 && (
+              <tr>
+                <td colSpan={5} style={{ padding: '16px 12px', color: '#888' }}>No quizzes available.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
-
-      {!loading && quizzes.length === 0 && <p style={{ color: '#888', marginTop: 14 }}>No quizzes available.</p>}
     </div>
   );
-}
-
-function formatDateTime(value) {
-  if (!value) return 'Not set';
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? 'Not set' : parsed.toLocaleString();
 }
 
 const inputStyle = {
@@ -185,6 +172,22 @@ const actionButtonStyle = {
   fontWeight: 600
 };
 
+const headerCellStyle = {
+  textAlign: 'left',
+  padding: '12px 14px',
+  borderBottom: '1px solid #e5e7eb',
+  color: '#475467',
+  fontSize: '0.85rem',
+  background: '#f8fafc'
+};
+
+const cellStyle = {
+  padding: '12px 14px',
+  borderBottom: '1px solid #f2f4f7',
+  color: '#344054',
+  fontSize: '0.92rem'
+};
+
 const primaryLinkStyle = {
   display: 'inline-flex',
   alignItems: 'center',
@@ -197,11 +200,4 @@ const primaryLinkStyle = {
   minHeight: 38,
   fontWeight: 600,
   fontSize: '0.85rem'
-};
-
-const secondaryLinkStyle = {
-  ...primaryLinkStyle,
-  background: '#fff',
-  color: '#344054',
-  border: '1px solid #d0d5dd'
 };

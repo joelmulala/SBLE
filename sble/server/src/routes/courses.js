@@ -366,53 +366,71 @@ router.get('/:id/performance', ...guard, requireLecturer,
           JOIN users u ON u.id = e.student_id
           WHERE e.course_id = :courseId
         ),
-        assessment_scores AS (
+        assignment_scores AS (
           SELECT
             s.student_id,
-            s.grade::numeric AS score
+            COALESCE(s.grade::numeric, 0) AS score,
+            100::numeric AS total_marks
           FROM submissions s
           JOIN assignments a ON a.id = s.assignment_id
           WHERE a.course_id = :courseId
             AND s.grade IS NOT NULL
-
-          UNION ALL
-
+        ),
+        quiz_scores AS (
           SELECT
             qa.student_id,
-            qa.score::numeric AS score
+            COALESCE(qa.score::numeric, 0) AS score,
+            COALESCE((
+              SELECT SUM(COALESCE(qq.marks, 1))
+              FROM quiz_questions qq
+              WHERE qq.quiz_id = qa.quiz_id
+            ), 0)::numeric AS total_marks
           FROM quiz_attempts qa
           JOIN quizzes q ON q.id = qa.quiz_id
           WHERE q.course_id = :courseId
             AND qa.score IS NOT NULL
             AND qa.submitted_at IS NOT NULL
+        ),
+        performance_scores AS (
+          SELECT * FROM assignment_scores
+          UNION ALL
+          SELECT * FROM quiz_scores
         )
         SELECT
           es.student_id,
-          COALESCE(ROUND(AVG(a.score), 2), 0)::numeric AS average_score
+          COALESCE(SUM(ps.score), 0)::numeric AS total_score,
+          COALESCE(SUM(ps.total_marks), 0)::numeric AS total_marks
         FROM enrolled_students es
-        LEFT JOIN assessment_scores a ON a.student_id = es.user_id
+        LEFT JOIN performance_scores ps ON ps.student_id = es.user_id
         GROUP BY es.student_id
         ORDER BY es.student_id ASC
       `, { replacements: { courseId } });
 
-      const performance = rows.map((row) => {
-        const averageScore = Number.parseFloat(row.average_score) || 0;
-        let category = 'Red';
-
-        if (averageScore >= 70) category = 'Green';
-        else if (averageScore >= 50) category = 'Orange';
-
-        return {
+      const payload = {
+        students: rows.map((row) => ({
           student_id: row.student_id,
-          average_score: Number(averageScore.toFixed(2)),
-          category
-        };
+          score: Number(row.total_score) || 0,
+          total: Number(row.total_marks) || 0
+        }))
+      };
+
+      console.log("CALLING PYTHON SERVICE");
+      const analysisResponse = await fetch('http://localhost:8000/analyze-performance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
       });
 
-      res.json({
-        course_id: courseId,
-        performance
-      });
+      const responseType = analysisResponse.headers.get('content-type') || '';
+      const responseBody = responseType.includes('application/json')
+        ? await analysisResponse.json()
+        : await analysisResponse.text();
+
+      if (responseType.includes('application/json')) {
+        return res.status(analysisResponse.status).json(responseBody);
+      }
+
+      return res.status(analysisResponse.status).send(responseBody);
     } catch (err) {
       res.status(err.status || 500).json({ error: err.message });
     }

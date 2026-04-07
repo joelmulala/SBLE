@@ -643,7 +643,12 @@ router.post('/:id/attempt', ...guard, requireStudent,
   }), async (req, res) => {
   try {
     const quiz = decorateQuiz(req.quiz);
-    if (!quiz.is_published || !Array.isArray(quiz.QuizQuestions) || quiz.QuizQuestions.length === 0) {
+
+    if (!Array.isArray(quiz.QuizQuestions) || quiz.QuizQuestions.length === 0) {
+      return res.status(400).json({ error: 'This quiz has no questions' });
+    }
+
+    if (!quiz.is_published) {
       return res.status(403).json({ error: 'This quiz is not available yet' });
     }
 
