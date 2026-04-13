@@ -12,6 +12,7 @@ import Quizzes from './pages/Quizzes';
 import Exams from './pages/Exams';
 import Users from './pages/Users';
 import Room from './pages/Room';
+import RoomsList from './pages/RoomsList';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import LecturerCoursesPage from './pages/lecturer/LecturerCoursesPage';
@@ -68,6 +69,11 @@ function CourseDetailRouteRedirect() {
   return <Navigate to={isLecturer ? `/lecturer/courses/${id}` : `/student/courses/${id}`} replace />;
 }
 
+function LegacyRoomRouteRedirect() {
+  const { token } = useParams();
+  return <Navigate to={`/room/${token}`} replace />;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -106,7 +112,9 @@ export default function App() {
           <Route path="lecturer/courses/:courseId/performance" element={<ProtectedRoute roles={['lecturer', 'admin']}><LecturerPerformancePage /></ProtectedRoute>} />
           <Route path="lecturer/courses/:courseId/exams" element={<ProtectedRoute roles={['lecturer', 'admin']}><Exams /></ProtectedRoute>} />
           <Route path="users" element={<ProtectedRoute roles={['admin']}><Users /></ProtectedRoute>} />
-          <Route path="rooms/:token" element={<Room />} />
+          <Route path="rooms" element={<ProtectedRoute roles={['lecturer', 'admin', 'student']}><RoomsList /></ProtectedRoute>} />
+          <Route path="room/:roomId" element={<ProtectedRoute roles={['lecturer', 'admin', 'student']}><Room /></ProtectedRoute>} />
+          <Route path="rooms/:token" element={<LegacyRoomRouteRedirect />} />
         </Route>
       </Routes>
     </BrowserRouter>

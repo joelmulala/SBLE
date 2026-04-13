@@ -28,6 +28,21 @@ export default function useNotifications() {
       setNotifications(prev => [{ id: Date.now(), type: 'exam', ...data }, ...prev]);
     });
 
+    const handleLiveClassStarted = (e) => {
+      const data = JSON.parse(e.data);
+      setNotifications(prev => [{
+        id: Date.now(),
+        type: data.type || 'live_class_started',
+        roomId: data.roomId || data.room_id,
+        courseId: data.courseId || data.course_id,
+        message: data.message || 'Live class started - Join now',
+        ...data
+      }, ...prev]);
+    };
+
+    es.addEventListener('live-class-started', handleLiveClassStarted);
+    es.addEventListener('live_class_started', handleLiveClassStarted);
+
     es.onerror = () => es.close();
 
     return () => es.close();

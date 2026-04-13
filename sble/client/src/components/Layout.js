@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Outlet, NavLink, useLocation } from 'react-router-dom';
+import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useKeycloak } from '../auth/AuthProvider';
 import useNotifications from '../hooks/useNotifications';
 import styles from './Layout.module.css';
 
 export default function Layout() {
+  const navigate = useNavigate();
   const { keycloak } = useKeycloak();
   const { notifications, dismiss } = useNotifications();
   const [showNotifs, setShowNotifs] = useState(false);
@@ -44,6 +45,14 @@ export default function Layout() {
     }
   ];
 
+  const liveClassNotification = notifications.find((n) => n.type === 'live_class_started' && n.roomId);
+
+  const handleJoinLiveClass = () => {
+    if (!liveClassNotification?.roomId) return;
+    navigate(`/room/${encodeURIComponent(liveClassNotification.roomId)}`);
+    dismiss(liveClassNotification.id);
+  };
+
   return (
     <div className={styles.shell}>
       <nav className={styles.sidebar}>
@@ -51,6 +60,7 @@ export default function Layout() {
 
         <SidebarGroup label="MAIN">
           <NavItem to={isLecturer ? '/lecturer/dashboard' : '/student/dashboard'} end icon="🏠">Dashboard</NavItem>
+          <NavItem to="/rooms" icon="🎥" matchRoutes={[/^\/room\/[^/]+(?:\/)?$/, /^\/rooms\/[^/]+(?:\/)?$/]}>Live Classes</NavItem>
         </SidebarGroup>
 
         {isLecturer ? (
@@ -105,6 +115,29 @@ export default function Layout() {
                 <button onClick={() => dismiss(n.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#aaa', fontSize: '1rem' }}>×</button>
               </div>
             ))}
+          </div>
+        )}
+
+        {liveClassNotification && (
+          <div style={{ position: 'fixed', right: 28, bottom: 28, zIndex: 2000, width: 340, background: '#ffffff', border: '1px solid #bfdbfe', borderRadius: 12, boxShadow: '0 12px 30px rgba(2, 6, 23, 0.15)', padding: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'start', justifyContent: 'space-between', gap: 10 }}>
+              <div>
+                <div style={{ fontSize: '0.84rem', fontWeight: 700, color: '#1d4ed8', letterSpacing: '0.04em' }}>LIVE CLASS</div>
+                <div style={{ marginTop: 4, color: '#0f172a', fontWeight: 600 }}>Live class started - Join now</div>
+                <div style={{ marginTop: 4, fontSize: '0.86rem', color: '#475569' }}>{liveClassNotification.message}</div>
+              </div>
+              <button onClick={() => dismiss(liveClassNotification.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '1.1rem', lineHeight: 1 }}>x</button>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
+              <button
+                type="button"
+                onClick={handleJoinLiveClass}
+                style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 12px', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Join now
+              </button>
+            </div>
           </div>
         )}
 

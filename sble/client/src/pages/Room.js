@@ -1,183 +1,201 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { useKeycloak } from '../auth/AuthProvider';
+import api from '../config/api';
 
-const ICE_SERVERS = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+const JITSI_API_SCRIPT = 'https://meet.jit.si/external_api.js';
 
 export default function Room() {
-  const { token } = useParams();
-  const wsRef = useRef(null);
-  const localVideoRef = useRef(null);
-  const localStreamRef = useRef(null);
-  const peersRef = useRef({}); // peerId -> RTCPeerConnection
-  const [remoteStreams, setRemoteStreams] = useState({}); // peerId -> MediaStream
-  const [myId, setMyId] = useState(null);
-  const [chatMessages, setChatMessages] = useState([]);
-  const [chatInput, setChatInput] = useState('');
-  const [muted, setMuted] = useState(false);
-  const [videoOff, setVideoOff] = useState(false);
+  const { roomId, token } = useParams();
+  const { keycloak } = useKeycloak();
+  const jitsiContainerRef = useRef(null);
+  const jitsiApiRef = useRef(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [roomDetails, setRoomDetails] = useState(null);
+  const presenceTimerRef = useRef(null);
+  const activeRoomId = decodeURIComponent(roomId || token || '').trim();
+
+  const user = useMemo(() => ({
+    name: keycloak.tokenParsed?.name || 'User',
+    role: keycloak.hasRealmRole('lecturer') || keycloak.hasRealmRole('admin') ? 'lecturer' : 'student'
+  }), [keycloak]);
 
   useEffect(() => {
-    const wsUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/?room=${token}`;
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+    if (!activeRoomId || !jitsiContainerRef.current) return undefined;
 
-    // Get local media
-    navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
-      localStreamRef.current = stream;
-      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+    let disposed = false;
+
+    const createMeeting = () => {
+      if (disposed || !window.JitsiMeetExternalAPI) return;
+
+      const isLecturer = user.role === 'lecturer';
+      const domain = 'meet.jit.si';
+      const options = {
+        roomName: activeRoomId,
+        parentNode: jitsiContainerRef.current,
+        userInfo: {
+          displayName: user.name,
+          role: isLecturer ? 'moderator' : 'participant'
+        },
+        configOverwrite: {
+          enableUserRolesBasedOnToken: false,
+          prejoinPageEnabled: false,
+          startWithAudioMuted: false,
+          startWithVideoMuted: false,
+          disableRemoteMute: !isLecturer,
+          localRecording: {
+            enabled: isLecturer
+          },
+          fileRecordingsEnabled: isLecturer
+        },
+        interfaceConfigOverwrite: {
+          TOOLBAR_BUTTONS: isLecturer
+            ? [
+                'microphone',
+                'camera',
+                'desktop',
+                'fullscreen',
+                'fodeviceselection',
+                'hangup',
+                'chat',
+                'participants-pane',
+                'recording',
+                'raisehand',
+                'tileview',
+                'settings',
+                'security'
+              ]
+            : [
+                'microphone',
+                'camera',
+                'fullscreen',
+                'hangup',
+                'chat',
+                'raisehand',
+                'tileview',
+                'settings'
+              ]
+        }
+      };
+
+      const api = new window.JitsiMeetExternalAPI(domain, options);
+      jitsiApiRef.current = api;
+
+      api.addEventListener('videoConferenceJoined', () => {
+        if (!disposed) setIsLoading(false);
+      });
+
+      api.addEventListener('readyToClose', () => {
+        if (!disposed) setIsLoading(false);
+      });
+    };
+
+    const loadScript = () => new Promise((resolve, reject) => {
+      if (window.JitsiMeetExternalAPI) {
+        resolve();
+        return;
+      }
+
+      const existingScript = document.querySelector(`script[src="${JITSI_API_SCRIPT}"]`);
+      if (existingScript) {
+        existingScript.addEventListener('load', resolve, { once: true });
+        existingScript.addEventListener('error', reject, { once: true });
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = JITSI_API_SCRIPT;
+      script.async = true;
+      script.onload = resolve;
+      script.onerror = reject;
+      document.body.appendChild(script);
     });
 
-    ws.onmessage = async (event) => {
-      const msg = JSON.parse(event.data);
+    const initMeeting = async () => {
+      setIsLoading(true);
+      setLoadError('');
 
-      switch (msg.type) {
-        case 'connected':
-          setMyId(msg.peerId);
-          break;
+      try {
+        const accessResponse = await api.get(`/rooms/${encodeURIComponent(activeRoomId)}/access`);
+        if (disposed) return;
+        setRoomDetails(accessResponse.data);
 
-        case 'peer-joined':
-          await createOffer(msg.peerId);
-          break;
+        if (user.role === 'lecturer') {
+          await api.post(`/rooms/${encodeURIComponent(activeRoomId)}/presence`, { active: true });
+          presenceTimerRef.current = window.setInterval(() => {
+            api.post(`/rooms/${encodeURIComponent(activeRoomId)}/presence`, { active: true }).catch(() => {});
+          }, 20000);
+        }
 
-        case 'offer':
-          await handleOffer(msg);
-          break;
-
-        case 'answer':
-          await peersRef.current[msg.from]?.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-          break;
-
-        case 'ice-candidate':
-          await peersRef.current[msg.from]?.addIceCandidate(new RTCIceCandidate(msg.candidate));
-          break;
-
-        case 'peer-left':
-          removePeer(msg.peerId);
-          break;
-
-        case 'chat':
-          setChatMessages(prev => [...prev, { from: msg.from, text: msg.text }]);
-          break;
-
-        default: break;
+        await loadScript();
+        if (disposed) return;
+        createMeeting();
+      } catch (error) {
+        if (!disposed) {
+          const apiError = error?.response?.data?.error;
+          setLoadError(apiError || 'You do not have access to this room.');
+          setIsLoading(false);
+        }
       }
     };
+
+    initMeeting();
 
     return () => {
-      ws.close();
-      localStreamRef.current?.getTracks().forEach(t => t.stop());
-      Object.values(peersRef.current).forEach(pc => pc.close());
-    };
-  }, [token]);
+      disposed = true;
+      if (presenceTimerRef.current) {
+        clearInterval(presenceTimerRef.current);
+        presenceTimerRef.current = null;
+      }
 
-  const createPeerConnection = (peerId) => {
-    const pc = new RTCPeerConnection(ICE_SERVERS);
-    peersRef.current[peerId] = pc;
+      if (user.role === 'lecturer' && activeRoomId) {
+        api.post(`/rooms/${encodeURIComponent(activeRoomId)}/presence`, { active: false }).catch(() => {});
+      }
 
-    localStreamRef.current?.getTracks().forEach(t => pc.addTrack(t, localStreamRef.current));
-
-    pc.onicecandidate = (e) => {
-      if (e.candidate) {
-        wsRef.current.send(JSON.stringify({ type: 'ice-candidate', to: peerId, candidate: e.candidate }));
+      if (jitsiApiRef.current) {
+        jitsiApiRef.current.dispose();
+        jitsiApiRef.current = null;
       }
     };
-
-    pc.ontrack = (e) => {
-      setRemoteStreams(prev => ({ ...prev, [peerId]: e.streams[0] }));
-    };
-
-    return pc;
-  };
-
-  const createOffer = async (peerId) => {
-    const pc = createPeerConnection(peerId);
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    wsRef.current.send(JSON.stringify({ type: 'offer', to: peerId, sdp: offer }));
-  };
-
-  const handleOffer = async ({ from, sdp }) => {
-    const pc = createPeerConnection(from);
-    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    wsRef.current.send(JSON.stringify({ type: 'answer', to: from, sdp: answer }));
-  };
-
-  const removePeer = (peerId) => {
-    peersRef.current[peerId]?.close();
-    delete peersRef.current[peerId];
-    setRemoteStreams(prev => { const s = { ...prev }; delete s[peerId]; return s; });
-  };
-
-  const sendChat = (e) => {
-    e.preventDefault();
-    if (!chatInput.trim()) return;
-    wsRef.current.send(JSON.stringify({ type: 'chat', text: chatInput }));
-    setChatMessages(prev => [...prev, { from: 'me', text: chatInput }]);
-    setChatInput('');
-  };
-
-  const toggleMute = () => {
-    localStreamRef.current?.getAudioTracks().forEach(t => { t.enabled = muted; });
-    setMuted(!muted);
-  };
-
-  const toggleVideo = () => {
-    localStreamRef.current?.getVideoTracks().forEach(t => { t.enabled = videoOff; });
-    setVideoOff(!videoOff);
-  };
+  }, [activeRoomId, user.name, user.role]);
 
   return (
-    <div style={{ display: 'flex', gap: 16, height: '80vh' }}>
-      {/* Video grid */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          <video ref={localVideoRef} autoPlay muted playsInline
-            style={{ width: 240, borderRadius: 8, background: '#000' }} />
-          {Object.entries(remoteStreams).map(([peerId, stream]) => (
-            <RemoteVideo key={peerId} stream={stream} />
-          ))}
-        </div>
-
-        {/* Controls */}
-        <div style={{ display: 'flex', gap: 10, marginTop: 'auto' }}>
-          <button onClick={toggleMute}
-            style={{ padding: '10px 20px', borderRadius: 6, border: 'none', background: muted ? '#dc3545' : '#28a745', color: '#fff', cursor: 'pointer' }}>
-            {muted ? 'Unmute' : 'Mute'}
-          </button>
-          <button onClick={toggleVideo}
-            style={{ padding: '10px 20px', borderRadius: 6, border: 'none', background: videoOff ? '#dc3545' : '#28a745', color: '#fff', cursor: 'pointer' }}>
-            {videoOff ? 'Start Video' : 'Stop Video'}
-          </button>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, height: 'calc(100vh - 140px)', minHeight: 520 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+        <h2 style={{ margin: 0, fontSize: '1.15rem', color: '#0f172a' }}>Live Room</h2>
+        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 10, fontSize: '0.9rem', color: '#475569' }}>
+          {roomDetails?.course?.title ? <span>Course: {roomDetails.course.title}</span> : null}
+          <span>Room ID: {activeRoomId}</span>
+          <span>Role: {user.role === 'lecturer' ? 'Lecturer (moderator tools enabled)' : 'Student'}</span>
         </div>
       </div>
 
-      {/* Chat panel */}
-      <div style={{ width: 280, display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: 8, padding: 16, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}>
-        <h3 style={{ marginBottom: 12 }}>Chat</h3>
-        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {chatMessages.map((m, i) => (
-            <div key={i} style={{ fontSize: '0.9rem' }}>
-              <strong>{m.from === 'me' ? 'You' : m.from.slice(0, 6)}:</strong> {m.text}
-            </div>
-          ))}
+      {isLoading && (
+        <div style={{ padding: '10px 14px', borderRadius: 10, background: '#e0f2fe', color: '#0c4a6e', fontSize: '0.92rem' }}>
+          {user.role === 'student' ? 'Waiting for lecturer to start class...' : 'Loading meeting room...'}
         </div>
-        <form onSubmit={sendChat} style={{ display: 'flex', gap: 6, marginTop: 12 }}>
-          <input value={chatInput} onChange={e => setChatInput(e.target.value)} placeholder="Message..."
-            style={{ flex: 1, padding: '8px', borderRadius: 6, border: '1px solid #ddd' }} />
-          <button type="submit" style={{ background: '#4f8ef7', color: '#fff', padding: '8px 12px', borderRadius: 6, border: 'none', cursor: 'pointer' }}>
-            Send
-          </button>
-        </form>
-      </div>
+      )}
+
+      {loadError && (
+        <div style={{ padding: '10px 14px', borderRadius: 10, background: '#fee2e2', color: '#991b1b', fontSize: '0.92rem' }}>
+          {loadError}
+        </div>
+      )}
+
+      <div
+        ref={jitsiContainerRef}
+        id="jitsi-container"
+        style={{
+          width: '100%',
+          height: '100%',
+          minHeight: 420,
+          borderRadius: 14,
+          overflow: 'hidden',
+          background: '#020617',
+          boxShadow: '0 10px 30px rgba(2, 6, 23, 0.15)'
+        }}
+      />
     </div>
   );
-}
-
-// Attach remote stream to video element
-function RemoteVideo({ stream }) {
-  const ref = useRef(null);
-  useEffect(() => { if (ref.current) ref.current.srcObject = stream; }, [stream]);
-  return <video ref={ref} autoPlay playsInline style={{ width: 240, borderRadius: 8, background: '#000' }} />;
 }
