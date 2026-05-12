@@ -2,10 +2,189 @@ const router = require('express').Router();
 const multer = require('multer');
 const { Op } = require('sequelize');
 const keycloak = require('../config/keycloak');
+const logger = require('../config/logger');
 const { attachUser, requireLecturer, requireStudent, authorizeCourseAccess, audit } = require('../middleware/auth');
 const { Course, Enrollment, User, Discussion, sequelize } = require('../models');
 
 const guard = [keycloak.protect(), attachUser];
+const PERFORMANCE_SERVICE_URL = process.env.PERFORMANCE_SERVICE_URL || 'http://localhost:8000/analyze-performance';
+const PERFORMANCE_SERVICE_TIMEOUT_MS = Number.parseInt(process.env.PERFORMANCE_SERVICE_TIMEOUT_MS || '3000', 10);
+const ASSIGNMENT_WEIGHT = 0.4;
+const QUIZ_WEIGHT = 0.2;
+const EXAM_WEIGHT = 0.4;
+
+const toRounded = (value, precision = 2) => {
+  const numeric = Number(value) || 0;
+  return Number(numeric.toFixed(precision));
+};
+
+const classifyGrade = (finalScore) => {
+  const score = Number(finalScore) || 0;
+
+  if (score >= 75) return { grade: 'A', status: 'Green', category: 'Green' };
+  if (score >= 60) return { grade: 'B', status: 'Green', category: 'Green' };
+  if (score >= 50) return { grade: 'C', status: 'Amber', category: 'Orange' };
+  if (score >= 40) return { grade: 'D', status: 'Amber', category: 'Orange' };
+  return { grade: 'F', status: 'Red', category: 'Red' };
+};
+
+const getTrend = (scoredEvents = []) => {
+  if (!Array.isArray(scoredEvents) || scoredEvents.length < 2) {
+    return 'stable';
+  }
+
+  const sorted = [...scoredEvents]
+    .filter((event) => Number.isFinite(event?.score) && event?.timestamp)
+    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+  if (sorted.length < 2) return 'stable';
+
+  const windowed = sorted.slice(-3);
+  const first = Number(windowed[0].score) || 0;
+  const last = Number(windowed[windowed.length - 1].score) || 0;
+  const delta = last - first;
+
+  if (delta >= 5) return 'improving';
+  if (delta <= -5) return 'declining';
+  return 'stable';
+};
+
+const calculateWeightedPerformance = ({
+  students,
+  assignments,
+  quizzes,
+  exams,
+  assignmentSubmissions,
+  quizAttempts
+}) => {
+  const assignmentIds = assignments.map((assignment) => Number(assignment.id));
+  const quizDefs = quizzes.map((quiz) => ({
+    id: Number(quiz.id),
+    totalMarks: Number(quiz.total_marks) || 0
+  }));
+  const examIds = exams.map((exam) => Number(exam.id));
+
+  const assignmentLatest = new Map();
+  assignmentSubmissions.forEach((row) => {
+    const key = `${row.student_id}:${row.assignment_id}`;
+    const previous = assignmentLatest.get(key);
+    const currentTs = new Date(row.last_updated_time || row.submitted_at || 0).getTime();
+    const previousTs = previous ? new Date(previous.last_updated_time || previous.submitted_at || 0).getTime() : -1;
+    if (!previous || currentTs >= previousTs) {
+      assignmentLatest.set(key, row);
+    }
+  });
+
+  const quizLatest = new Map();
+  quizAttempts.forEach((row) => {
+    const key = `${row.student_id}:${row.quiz_id}`;
+    const previous = quizLatest.get(key);
+    const currentTs = new Date(row.submitted_at || row.started_at || 0).getTime();
+    const previousTs = previous ? new Date(previous.submitted_at || previous.started_at || 0).getTime() : -1;
+    if (!previous || currentTs >= previousTs) {
+      quizLatest.set(key, row);
+    }
+  });
+
+  const totalItems = assignmentIds.length + quizDefs.length + examIds.length;
+
+  const performance = students.map((student) => {
+    const studentDbId = student.user_id;
+    const studentId = student.student_id;
+
+    const assignmentPercentages = assignmentIds.map((assignmentId) => {
+      const submission = assignmentLatest.get(`${studentDbId}:${assignmentId}`);
+      if (!submission) return 0;
+      const rawGrade = Number(submission.grade);
+      const normalized = Number.isFinite(rawGrade) ? Math.max(0, Math.min(100, rawGrade)) : 0;
+      return normalized;
+    });
+
+    const quizPercentages = quizDefs.map((quiz) => {
+      const attempt = quizLatest.get(`${studentDbId}:${quiz.id}`);
+      if (!attempt) return 0;
+      const score = Number(attempt.score) || 0;
+      const totalMarks = Number(quiz.totalMarks) || 0;
+      if (totalMarks <= 0) return 0;
+      return Math.max(0, Math.min(100, (score / totalMarks) * 100));
+    });
+
+    // Exam submissions are not currently tracked per student in this schema.
+    // Missing submissions are treated as 0 by design.
+    const examPercentages = examIds.map(() => 0);
+
+    const assignmentSubmitted = assignmentIds.filter((assignmentId) => assignmentLatest.has(`${studentDbId}:${assignmentId}`)).length;
+    const quizSubmitted = quizDefs.filter((quiz) => quizLatest.has(`${studentDbId}:${quiz.id}`)).length;
+    const examSubmitted = 0;
+    const submittedItems = assignmentSubmitted + quizSubmitted + examSubmitted;
+
+    const assignmentAvg = assignmentPercentages.length
+      ? assignmentPercentages.reduce((sum, value) => sum + value, 0) / assignmentPercentages.length
+      : 0;
+    const quizAvg = quizPercentages.length
+      ? quizPercentages.reduce((sum, value) => sum + value, 0) / quizPercentages.length
+      : 0;
+    const examAvg = examPercentages.length
+      ? examPercentages.reduce((sum, value) => sum + value, 0) / examPercentages.length
+      : 0;
+
+    const completionRate = totalItems > 0 ? submittedItems / totalItems : 1;
+    const weightedScore = (assignmentAvg * ASSIGNMENT_WEIGHT)
+      + (quizAvg * QUIZ_WEIGHT)
+      + (examAvg * EXAM_WEIGHT);
+    const finalScore = weightedScore * completionRate;
+
+    const events = [];
+    assignmentIds.forEach((assignmentId) => {
+      const submission = assignmentLatest.get(`${studentDbId}:${assignmentId}`);
+      if (submission) {
+        events.push({
+          score: Number(submission.grade) || 0,
+          timestamp: submission.last_updated_time || submission.submitted_at
+        });
+      }
+    });
+    quizDefs.forEach((quiz) => {
+      const attempt = quizLatest.get(`${studentDbId}:${quiz.id}`);
+      if (attempt) {
+        const totalMarks = Number(quiz.totalMarks) || 0;
+        const score = totalMarks > 0 ? ((Number(attempt.score) || 0) / totalMarks) * 100 : 0;
+        events.push({
+          score,
+          timestamp: attempt.submitted_at || attempt.started_at
+        });
+      }
+    });
+
+    const trend = getTrend(events);
+    const graded = classifyGrade(finalScore);
+    const roundedAssignmentAvg = toRounded(assignmentAvg);
+    const roundedQuizAvg = toRounded(quizAvg);
+    const roundedExamAvg = toRounded(examAvg);
+    const roundedCompletionRate = toRounded(completionRate, 4);
+    const roundedFinalScore = toRounded(finalScore);
+
+    return {
+      studentId,
+      assignmentAvg: roundedAssignmentAvg,
+      quizAvg: roundedQuizAvg,
+      examAvg: roundedExamAvg,
+      completionRate: roundedCompletionRate,
+      finalScore: roundedFinalScore,
+      grade: graded.grade,
+      status: graded.status,
+      trend,
+
+      // Backward compatibility for existing frontend visualizations.
+      student_id: studentId,
+      average_score: roundedFinalScore,
+      category: graded.category,
+      percentage: roundedFinalScore
+    };
+  });
+
+  return { performance };
+};
 
 const sanitizeMessage = (value) => String(value || '')
   .replace(/[<>]/g, '')
@@ -38,6 +217,10 @@ const getManagedCourse = async (courseId, user) => {
     const err = new Error('Course not found');
     err.status = 404;
     throw err;
+  }
+
+  if (user.role === 'admin') {
+    return course;
   }
 
   if (user.role !== 'lecturer') {
@@ -188,6 +371,51 @@ router.get('/:id/enrollments', ...guard, requireLecturer,
       })));
     } catch (err) {
       res.status(err.status || 500).json({ error: err.message });
+    }
+  }
+);
+
+// List students available for enrollment in a course (assigned lecturer/admin only)
+router.get('/:id/enrollment-candidates', ...guard, requireLecturer,
+  authorizeCourseAccess(req => req.params.id, {
+    managerOnly: true,
+    managerMessage: 'Forbidden: only the assigned lecturer or admin can manage enrollments'
+  }),
+  async (req, res) => {
+    try {
+      const search = String(req.query?.q || '').trim();
+      const limit = Math.min(200, Math.max(1, Number.parseInt(req.query?.limit || '100', 10) || 100));
+
+      const existingEnrollments = await Enrollment.findAll({
+        where: { course_id: req.params.id },
+        attributes: ['student_id']
+      });
+
+      const enrolledIds = existingEnrollments.map((row) => row.student_id).filter(Boolean);
+      const where = {
+        role: 'student',
+        is_active: true,
+        ...(enrolledIds.length ? { id: { [Op.notIn]: enrolledIds } } : {})
+      };
+
+      if (search) {
+        where[Op.or] = [
+          { student_id: { [Op.iLike]: `%${search}%` } },
+          { full_name: { [Op.iLike]: `%${search}%` } },
+          { email: { [Op.iLike]: `%${search}%` } }
+        ];
+      }
+
+      const students = await User.findAll({
+        where,
+        attributes: ['id', 'student_id', 'full_name', 'email', 'program', 'year_of_study', 'mode'],
+        order: [['student_id', 'ASC'], ['full_name', 'ASC']],
+        limit
+      });
+
+      return res.json(students);
+    } catch (err) {
+      return res.status(err.status || 500).json({ error: err.message });
     }
   }
 );
@@ -357,80 +585,107 @@ router.get('/:id/performance', ...guard, requireLecturer,
         return res.status(400).json({ error: 'Invalid course id' });
       }
 
-      const [rows] = await sequelize.query(`
-        WITH enrolled_students AS (
-          SELECT
-            e.student_id AS user_id,
-            COALESCE(NULLIF(TRIM(u.student_id), ''), u.id) AS student_id
-          FROM enrollments e
-          JOIN users u ON u.id = e.student_id
-          WHERE e.course_id = :courseId
-        ),
-        assignment_scores AS (
-          SELECT
-            s.student_id,
-            COALESCE(s.grade::numeric, 0) AS score,
-            100::numeric AS total_marks
-          FROM submissions s
-          JOIN assignments a ON a.id = s.assignment_id
-          WHERE a.course_id = :courseId
-            AND s.grade IS NOT NULL
-        ),
-        quiz_scores AS (
-          SELECT
-            qa.student_id,
-            COALESCE(qa.score::numeric, 0) AS score,
-            COALESCE((
-              SELECT SUM(COALESCE(qq.marks, 1))
-              FROM quiz_questions qq
-              WHERE qq.quiz_id = qa.quiz_id
-            ), 0)::numeric AS total_marks
-          FROM quiz_attempts qa
-          JOIN quizzes q ON q.id = qa.quiz_id
-          WHERE q.course_id = :courseId
-            AND qa.score IS NOT NULL
-            AND qa.submitted_at IS NOT NULL
-        ),
-        performance_scores AS (
-          SELECT * FROM assignment_scores
-          UNION ALL
-          SELECT * FROM quiz_scores
-        )
+      const [students] = await sequelize.query(`
         SELECT
-          es.student_id,
-          COALESCE(SUM(ps.score), 0)::numeric AS total_score,
-          COALESCE(SUM(ps.total_marks), 0)::numeric AS total_marks
-        FROM enrolled_students es
-        LEFT JOIN performance_scores ps ON ps.student_id = es.user_id
-        GROUP BY es.student_id
-        ORDER BY es.student_id ASC
+          e.student_id AS user_id,
+          COALESCE(NULLIF(TRIM(u.student_id), ''), u.id) AS student_id
+        FROM enrollments e
+        JOIN users u ON u.id = e.student_id
+        WHERE e.course_id = :courseId
+        ORDER BY COALESCE(NULLIF(TRIM(u.student_id), ''), u.id) ASC
       `, { replacements: { courseId } });
 
-      const payload = {
-        students: rows.map((row) => ({
-          student_id: row.student_id,
-          score: Number(row.total_score) || 0,
-          total: Number(row.total_marks) || 0
-        }))
-      };
+      const [assignments] = await sequelize.query(`
+        SELECT id
+        FROM assignments
+        WHERE course_id = :courseId
+        ORDER BY id ASC
+      `, { replacements: { courseId } });
 
-      console.log("CALLING PYTHON SERVICE");
-      const analysisResponse = await fetch('http://localhost:8000/analyze-performance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+      const [quizzes] = await sequelize.query(`
+        SELECT
+          q.id,
+          COALESCE(SUM(COALESCE(qq.marks, 1)), 0)::numeric AS total_marks
+        FROM quizzes q
+        LEFT JOIN quiz_questions qq ON qq.quiz_id = q.id
+        WHERE q.course_id = :courseId
+        GROUP BY q.id
+        ORDER BY q.id ASC
+      `, { replacements: { courseId } });
+
+      const [exams] = await sequelize.query(`
+        SELECT id
+        FROM exams
+        WHERE course_id = :courseId
+        ORDER BY id ASC
+      `, { replacements: { courseId } });
+
+      const [assignmentSubmissions] = await sequelize.query(`
+        SELECT
+          s.assignment_id,
+          s.student_id,
+          s.grade,
+          s.submitted_at,
+          s.last_updated_time
+        FROM submissions s
+        JOIN assignments a ON a.id = s.assignment_id
+        WHERE a.course_id = :courseId
+      `, { replacements: { courseId } });
+
+      const [quizAttempts] = await sequelize.query(`
+        SELECT
+          qa.quiz_id,
+          qa.student_id,
+          qa.score,
+          qa.started_at,
+          qa.submitted_at,
+          COALESCE((
+            SELECT SUM(COALESCE(qq.marks, 1))
+            FROM quiz_questions qq
+            WHERE qq.quiz_id = qa.quiz_id
+          ), 0)::numeric AS total_marks
+        FROM quiz_attempts qa
+        JOIN quizzes q ON q.id = qa.quiz_id
+        WHERE q.course_id = :courseId
+          AND qa.submitted_at IS NOT NULL
+      `, { replacements: { courseId } });
+
+      const performancePayload = calculateWeightedPerformance({
+        students,
+        assignments,
+        quizzes,
+        exams,
+        assignmentSubmissions,
+        quizAttempts
       });
 
-      const responseType = analysisResponse.headers.get('content-type') || '';
-      const responseBody = responseType.includes('application/json')
-        ? await analysisResponse.json()
-        : await analysisResponse.text();
+      // Keep optional integration hook: if the service is reachable and supports
+      // this payload shape, it may post-process further. Otherwise return Node.js result.
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), PERFORMANCE_SERVICE_TIMEOUT_MS);
+        const response = await fetch(PERFORMANCE_SERVICE_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(performancePayload),
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
 
-      if (responseType.includes('application/json')) {
-        return res.status(analysisResponse.status).json(responseBody);
+        if (response.ok) {
+          const contentType = response.headers.get('content-type') || '';
+          if (contentType.includes('application/json')) {
+            const serviceData = await response.json();
+            if (Array.isArray(serviceData?.performance)) {
+              return res.json(serviceData);
+            }
+          }
+        }
+      } catch (serviceError) {
+        logger.error(`Performance service unavailable, returning Node.js analytics: ${serviceError.message}`);
       }
 
-      return res.status(analysisResponse.status).send(responseBody);
+      return res.json(performancePayload);
     } catch (err) {
       res.status(err.status || 500).json({ error: err.message });
     }

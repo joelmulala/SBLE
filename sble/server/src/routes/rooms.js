@@ -25,10 +25,24 @@ const resolveRole = (req) => {
   return req.user?.role || 'student';
 };
 
+const courseInclude = {
+  model: Course,
+  attributes: ['id', 'title', 'lecturer_id', 'is_active'],
+  include: [{ model: User, as: 'lecturer', attributes: ['id', 'full_name', 'email'] }]
+};
+
+const normalizeLecturerName = (raw) => {
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  return s.replace(/\s*[-–—]\s*$/, '').trim() || null;
+};
+
 const toRoomPayload = (room) => {
   if (!room) return null;
   const course = room.Course;
   const lecturerActive = Boolean(lecturerPresenceByRoom.get(room.room_token));
+  const lecturerName = normalizeLecturerName(course?.lecturer?.full_name);
 
   return {
     id: room.id,
@@ -49,16 +63,69 @@ const toRoomPayload = (room) => {
       ? {
           id: course.id,
           title: course.title,
-          lecturer_id: course.lecturer_id
+          lecturer_id: course.lecturer_id,
+          lecturerName,
+          lecturer_name: lecturerName
         }
       : null
   };
+};
+
+const closeRoomRecord = async (room, { notifyStudents = false } = {}) => {
+  if (!room) return null;
+
+  if (!room.is_active) {
+    lecturerPresenceByRoom.set(room.room_token, false);
+    return room;
+  }
+
+  await room.update({ is_active: false });
+  lecturerPresenceByRoom.set(room.room_token, false);
+
+  if (!notifyStudents) {
+    return room;
+  }
+
+  const enrollments = await Enrollment.findAll({
+    where: { course_id: room.course_id },
+    include: [{ model: User, as: 'student', attributes: ['id'] }]
+  });
+  const courseTitle = room.Course?.title || 'your course';
+  enrollments.forEach((enrollment) => {
+    const studentId = enrollment.student?.id;
+    if (!studentId) return;
+    sendToUser(studentId, 'live-class-ended', {
+      type: 'live_class_ended',
+      courseId: room.course_id,
+      course_id: room.course_id,
+      roomId: room.room_token,
+      room_id: room.room_token,
+      message: `Live class ended for ${courseTitle}`
+    });
+  });
+
+  return room;
 };
 
 const createRoomHandler = async (req, res) => {
   try {
     const courseId = req.body.courseId || req.body.course_id;
     const title = String(req.body.title || '').trim();
+    // Enforce only one active meeting per lecturer
+    const activeRoom = await Room.findOne({
+      where: {
+        created_by: req.user.id,
+        is_active: true
+      }
+    });
+    if (activeRoom) {
+      // Auto-close stale rooms where lecturer is no longer present.
+      if (lecturerPresenceByRoom.get(activeRoom.room_token)) {
+        return res.status(409).json({ error: 'You already have an active meeting. Please close it before starting a new one.' });
+      }
+      await closeRoomRecord(activeRoom, { notifyStudents: false });
+    }
+
     const room = await Room.create({
       course_id: courseId,
       title: title || `Live Class ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`,
@@ -70,7 +137,7 @@ const createRoomHandler = async (req, res) => {
     lecturerPresenceByRoom.set(room.room_token, false);
 
     const hydrated = await Room.findByPk(room.id, {
-      include: [{ model: Course, attributes: ['id', 'title', 'lecturer_id'] }]
+      include: [courseInclude]
     });
 
     // Notify enrolled students in real-time when a live class starts.
@@ -101,14 +168,22 @@ const createRoomHandler = async (req, res) => {
   }
 };
 
-const getRoomForRole = async (roomToken, user, role) => {
+const getRoomForRole = async (roomToken, user, role, opts = {}) => {
   const room = await Room.findOne({
-    where: { room_token: roomToken, is_active: true },
-    include: [{ model: Course, attributes: ['id', 'title', 'lecturer_id', 'is_active'] }]
+    where: { room_token: roomToken },
+    include: [courseInclude]
   });
 
-  if (!room || !room.Course || !room.Course.is_active) {
-    return { error: { status: 404, message: 'Room not found or inactive' } };
+  if (!room || !room.Course) {
+    return { error: { status: 404, message: 'Room not found' } };
+  }
+
+  if (!room.Course.is_active) {
+    return { error: { status: 403, message: 'Class has ended' } };
+  }
+
+  if (!room.is_active) {
+    return { error: { status: 403, message: 'Class has ended' } };
   }
 
   if (role === 'admin') {
@@ -130,7 +205,7 @@ const getRoomForRole = async (roomToken, user, role) => {
     return { error: { status: 403, message: 'Forbidden: only enrolled students can join this room' } };
   }
 
-  if (!lecturerPresenceByRoom.get(room.room_token)) {
+  if (!lecturerPresenceByRoom.get(room.room_token) && !opts.allowStudentLobby) {
     return { error: { status: 409, message: 'Waiting for lecturer to start class' } };
   }
 
@@ -173,11 +248,23 @@ router.get('/active', ...guard, async (req, res) => {
 
     const rooms = await Room.findAll({
       where,
-      include: [{ model: Course, attributes: ['id', 'title', 'lecturer_id'] }],
+      include: [courseInclude],
       order: [['created_at', 'DESC']]
     });
+    if (role === 'student') {
+      // Student view: only one active room per lecturer (latest first).
+      const latestByLecturer = new Map();
+      rooms.forEach((room) => {
+        const lecturerId = room.Course?.lecturer_id;
+        if (!lecturerId) return;
+        if (!latestByLecturer.has(String(lecturerId))) {
+          latestByLecturer.set(String(lecturerId), room);
+        }
+      });
+      return res.json(Array.from(latestByLecturer.values()).map(toRoomPayload));
+    }
 
-    res.json(rooms.map(toRoomPayload));
+    return res.json(rooms.map(toRoomPayload));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -206,8 +293,33 @@ router.post('/:roomId/presence', ...guard, requireLecturer, async (req, res) => 
       return res.status(result.error.status).json({ error: result.error.message });
     }
 
-    const isActive = req.body?.active !== false;
+    const isActive = Object.prototype.hasOwnProperty.call(req.body || {}, 'active')
+      ? Boolean(req.body.active)
+      : true;
     lecturerPresenceByRoom.set(req.params.roomId, isActive);
+
+    if (isActive && result.room) {
+      const room = result.room;
+      try {
+        const enrollments = await Enrollment.findAll({
+          where: { course_id: room.course_id },
+          include: [{ model: User, as: 'student', attributes: ['id'] }]
+        });
+        enrollments.forEach((enrollment) => {
+          const studentId = enrollment.student?.id;
+          if (!studentId) return;
+          sendToUser(studentId, 'live-class-ready', {
+            type: 'live_class_ready',
+            roomId: req.params.roomId,
+            room_id: req.params.roomId,
+            courseId: room.course_id,
+            course_id: room.course_id
+          });
+        });
+      } catch (_) {
+        /* non-fatal */
+      }
+    }
 
     return res.json({
       roomId: req.params.roomId,
@@ -223,7 +335,7 @@ router.post('/:roomId/presence', ...guard, requireLecturer, async (req, res) => 
 router.get('/:roomId/access', ...guard, async (req, res) => {
   try {
     const role = resolveRole(req);
-    const result = await getRoomForRole(req.params.roomId, req.user, role);
+    const result = await getRoomForRole(req.params.roomId, req.user, role, { allowStudentLobby: true });
     if (result.error) {
       return res.status(result.error.status).json({ error: result.error.message });
     }
@@ -234,10 +346,24 @@ router.get('/:roomId/access', ...guard, async (req, res) => {
   }
 });
 
-// Close a room
-router.patch('/:id/close', ...guard, requireLecturer,
+const closeRoomByToken = async (roomToken) => {
+  const token = String(roomToken || '').trim();
+  const room = await Room.findOne({
+    where: { room_token: token },
+    include: [courseInclude]
+  });
+  if (!room) {
+    const err = new Error('Room not found');
+    err.status = 404;
+    throw err;
+  }
+  return closeRoomRecord(room, { notifyStudents: true });
+};
+
+// Close a room (room_token is the live room id used in URLs and Jitsi)
+router.patch('/:roomToken/close', ...guard, requireLecturer,
   authorizeCourseAccess(async (req) => {
-    const room = await Room.findByPk(req.params.id);
+    const room = await Room.findOne({ where: { room_token: String(req.params.roomToken || '').trim() } });
     if (!room) {
       const err = new Error('Room not found');
       err.status = 404;
@@ -247,15 +373,14 @@ router.patch('/:id/close', ...guard, requireLecturer,
     return room.course_id;
   }, { managerOnly: true }), async (req, res) => {
   try {
-    const room = req.room;
-    await room.update({ is_active: false });
-    lecturerPresenceByRoom.set(room.room_token, false);
+    const room = await closeRoomByToken(req.params.roomToken);
     const hydrated = await Room.findByPk(room.id, {
-      include: [{ model: Course, attributes: ['id', 'title', 'lecturer_id'] }]
+      include: [courseInclude]
     });
     res.json(toRoomPayload(hydrated));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const status = err.status || 500;
+    res.status(status).json({ error: err.message });
   }
 });
 

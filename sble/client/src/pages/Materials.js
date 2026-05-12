@@ -81,13 +81,19 @@ export default function Materials() {
   };
 
   return (
-    <div>
-      <h2>Learning Materials</h2>
-      {loading && <p style={{ marginTop: 12, color: '#666' }}>Loading materials...</p>}
-      {error && <p style={{ marginTop: 12, color: '#c0392b' }}>{error}</p>}
+    <div className="app-page">
+      <div className="app-container app-stack">
+      <section className="app-surface">
+        <div className="app-surface-body">
+          <p className="app-kicker">{isLecturer ? 'Course Delivery' : 'Course Study'}</p>
+          <h1 className="page-title" style={{ marginTop: '0.35rem' }}>Learning Materials</h1>
+        </div>
+      </section>
+      {loading && <p className="app-meta">Loading materials...</p>}
+      {error && <p style={{ color: '#c0392b' }}>{error}</p>}
 
       {isLecturer && (
-        <form onSubmit={handleUpload} style={{ marginTop: 20, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <form onSubmit={handleUpload} className="app-surface app-surface-body" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Material title" required
             style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #ddd', flex: 1 }} />
           <input type="file" accept=".pdf,.doc,.docx,.jpg,.png" onChange={(e) => setFile(e.target.files?.[0] || null)} required />
@@ -98,9 +104,9 @@ export default function Materials() {
         </form>
       )}
 
-      <ul style={{ marginTop: 24, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10, padding: 0 }}>
+      <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10, padding: 0 }}>
         {materials.map((material) => (
-          <li key={material.id} style={{ background: '#fff', padding: 16, borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.07)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+          <li key={material.id} className="app-surface app-surface-body" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
             <div>
               <strong>{material.file_name || material.title}</strong>
               <p style={{ color: '#666', marginTop: 4 }}>{material.title}</p>
@@ -114,6 +120,7 @@ export default function Materials() {
         ))}
         {!loading && materials.length === 0 && <p style={{ color: '#888' }}>No materials uploaded yet.</p>}
       </ul>
+      </div>
     </div>
   );
 }

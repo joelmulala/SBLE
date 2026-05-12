@@ -1,15 +1,19 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useKeycloak } from '../auth/AuthProvider';
 import api from '../config/api';
 import CourseViewPage from '../components/student/CourseViewPage';
+import styles from './CourseDetail.module.css';
 
 export default function CourseDetail() {
   const params = useParams();
   const courseId = params.courseId || params.id;
   const { keycloak } = useKeycloak();
   const isLecturer = keycloak.hasRealmRole('lecturer') || keycloak.hasRealmRole('admin');
+  const navigate = useNavigate();
   const [course, setCourse] = useState(null);
+  const [liveRoomError, setLiveRoomError] = useState('');
+  const [startingLiveRoom, setStartingLiveRoom] = useState(false);
 
   useEffect(() => {
     if (!isLecturer || !courseId) return;
@@ -29,22 +33,83 @@ export default function CourseDetail() {
     { label: 'Performance', path: 'performance', color: '#7c3aed' }
   ];
 
-  return (
-    <div>
-      <h2>{course?.title || `Course #${courseId}`}</h2>
-      {course?.description && <p style={{ color: '#666', marginTop: 6 }}>{course.description}</p>}
-      {course?.lecturer && <p style={{ color: '#aaa', fontSize: '0.85rem', marginTop: 4 }}>Lecturer: {course.lecturer.full_name}</p>}
+  const handleStartLiveRoom = async () => {
+    if (!courseId) return;
+    setStartingLiveRoom(true);
+    setLiveRoomError('');
 
-      <div style={{ display: 'flex', gap: 12, marginTop: 28, flexWrap: 'wrap' }}>
+    try {
+      const res = await api.post('/rooms/create', { courseId: Number(courseId) });
+      const roomId = res?.data?.roomId || res?.data?.room_id;
+      if (!roomId) throw new Error('Room creation succeeded but room id is missing.');
+      navigate(`/room/${encodeURIComponent(roomId)}`);
+    } catch (err) {
+      // If one active room already exists, route lecturer to the latest room for this course.
+      if (err?.response?.status === 409) {
+        try {
+          const active = await api.get(`/rooms/course/${encodeURIComponent(courseId)}`);
+          const items = Array.isArray(active?.data) ? active.data : [];
+          const existing = items.find((room) => String(room.createdBy) === String(keycloak.tokenParsed?.sub)) || items[0];
+          const existingRoomId = existing?.roomId || existing?.room_id;
+          if (existingRoomId) {
+            navigate(`/room/${encodeURIComponent(existingRoomId)}`);
+            return;
+          }
+        } catch (_) {
+          // fall through to normal error display
+        }
+      }
+
+      setLiveRoomError(err?.response?.data?.error || err?.message || 'Failed to start live room.');
+    } finally {
+      setStartingLiveRoom(false);
+    }
+  };
+
+  return (
+    <div className="app-page">
+      <div className="app-container app-stack">
+        <section className="app-surface">
+          <div className="app-surface-body">
+            <p className="app-kicker">Lecturer Course Hub</p>
+            <h1 className="page-title" style={{ marginTop: '0.35rem' }}>{course?.title || `Course #${courseId}`}</h1>
+            {course?.description && <p className="page-lead">{course.description}</p>}
+            {course?.lecturer && <p className="app-meta" style={{ marginTop: '0.5rem' }}>Lecturer: {course.lecturer.full_name}</p>}
+          </div>
+        </section>
+
+        <section className="app-grid-2">
+          <article className="app-surface">
+            <div className="app-surface-header">
+              <h2 style={{ fontSize: '1.05rem', fontWeight: 600 }}>Academic Workflows</h2>
+            </div>
+            <div className={`app-surface-body ${styles.sectionGrid}`}>
         {sections.map((section) => (
           <Link
             key={section.path}
             to={`/lecturer/courses/${courseId}/${section.path}`}
-            style={{ background: section.color, color: '#fff', padding: '14px 28px', borderRadius: 8, fontWeight: 600, fontSize: '0.95rem', minWidth: 120, textAlign: 'center' }}
+            className={styles.sectionLink}
+            style={{ borderLeft: `3px solid ${section.color}` }}
           >
-            {section.label}
+            <span className={styles.sectionTitle}>{section.label}</span>
+            <span className={styles.sectionMeta}>Open Workspace</span>
           </Link>
         ))}
+            </div>
+          </article>
+          <aside className="app-surface">
+            <div className="app-surface-header">
+              <h2 style={{ fontSize: '1.05rem', fontWeight: 600 }}>Live Classroom</h2>
+            </div>
+            <div className="app-surface-body app-stack">
+              <p className="app-meta">Launch a session with Jitsi for enrolled students.</p>
+              <button type="button" onClick={handleStartLiveRoom} disabled={startingLiveRoom} className="app-button app-button--primary">
+                {startingLiveRoom ? 'Opening...' : 'Open Live Room'}
+              </button>
+              {liveRoomError ? <p style={{ color: '#c0392b' }}>{liveRoomError}</p> : null}
+            </div>
+          </aside>
+        </section>
       </div>
     </div>
   );

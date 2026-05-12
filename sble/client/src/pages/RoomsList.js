@@ -1,10 +1,18 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useKeycloak } from '../auth/AuthProvider';
 import api from '../config/api';
 
+function cleanLecturerName(name) {
+  if (name == null) return '';
+  const s = String(name).trim();
+  if (!s) return '';
+  return s.replace(/\s*[-–—]\s*$/u, '').trim() || '';
+}
+
 export default function RoomsList() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { keycloak } = useKeycloak();
   const [courses, setCourses] = useState([]);
   const [selectedCourseId, setSelectedCourseId] = useState('');
@@ -13,6 +21,9 @@ export default function RoomsList() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [liveClassNotice, setLiveClassNotice] = useState('');
+  const [selectedCourseEnrollments, setSelectedCourseEnrollments] = useState([]);
+  const [loadingParticipants, setLoadingParticipants] = useState(false);
 
   const isLecturer = keycloak.hasRealmRole('lecturer') || keycloak.hasRealmRole('admin');
   const userName = keycloak.tokenParsed?.name || 'User';
@@ -23,6 +34,13 @@ export default function RoomsList() {
       : 'Join active live classes from courses where you are enrolled.'
   ), [isLecturer]);
 
+  useEffect(() => {
+    if (location.state?.liveClassEnded) {
+      setLiveClassNotice(location.state.liveClassMessage || 'Class ended');
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.state, location.pathname, navigate]);
+
   const activeCourseIds = useMemo(() => {
     const ids = new Set();
     activeRooms.forEach((room) => {
@@ -32,6 +50,11 @@ export default function RoomsList() {
     });
     return ids;
   }, [activeRooms]);
+
+  const selectedCourse = useMemo(
+    () => courses.find((course) => String(course.id) === String(selectedCourseId)) || null,
+    [courses, selectedCourseId]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -71,6 +94,30 @@ export default function RoomsList() {
     return () => { cancelled = true; };
   }, [isLecturer]);
 
+  useEffect(() => {
+    if (!isLecturer || !selectedCourseId) {
+      setSelectedCourseEnrollments([]);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingParticipants(true);
+    api.get(`/courses/${encodeURIComponent(selectedCourseId)}/enrollments`)
+      .then((res) => {
+        if (cancelled) return;
+        const rows = Array.isArray(res.data) ? res.data : [];
+        setSelectedCourseEnrollments(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setSelectedCourseEnrollments([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingParticipants(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [isLecturer, selectedCourseId]);
+
   const handleCreateRoom = async () => {
     if (!selectedCourseId) {
       setError('Select a course before starting a live class.');
@@ -99,7 +146,8 @@ export default function RoomsList() {
   };
 
   return (
-    <div style={{ display: 'grid', gap: 18, maxWidth: 860 }}>
+    <div className="app-page">
+      <div className="app-container app-container--narrow app-stack">
       <section style={heroCardStyle}>
         <div>
           <p style={eyebrowStyle}>LIVE CLASSES</p>
@@ -110,6 +158,12 @@ export default function RoomsList() {
         </div>
         <div style={badgeStyle}>{userName}</div>
       </section>
+
+      {liveClassNotice && (
+        <div style={{ ...noticeStyle, background: '#ecfdf3', color: '#027a48', border: '1px solid #abefc6' }}>
+          {liveClassNotice}
+        </div>
+      )}
 
       {error && (
         <div style={{ ...noticeStyle, background: '#fef3f2', color: '#b42318', border: '1px solid #fecdca' }}>
@@ -146,20 +200,22 @@ export default function RoomsList() {
               )}
             </select>
 
-            {courses.length > 0 && (
-              <div style={{ display: 'grid', gap: 8 }}>
-                {courses.map((course) => (
-                  <div key={`status-${course.id}`} style={{ ...infoCardStyle, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px' }}>
-                    <span style={{ color: '#0f172a', fontWeight: 600 }}>{course.title}</span>
-                    {activeCourseIds.has(String(course.id)) ? (
-                      <span style={liveNowBadgeStyle}>Live Now</span>
-                    ) : (
-                      <span style={{ color: '#64748b', fontSize: '0.82rem' }}>Offline</span>
-                    )}
-                  </div>
-                ))}
+            <div style={modernCourseCardStyle}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
+                <span style={{ fontSize: '0.74rem', fontWeight: 700, letterSpacing: '0.08em', color: '#1d4ed8' }}>
+                  SELECTED COURSE
+                </span>
+                {activeRooms.length > 0 ? <span style={singleRoomBadgeStyle}>1 ROOM ACTIVE</span> : null}
               </div>
-            )}
+              <div style={{ marginTop: 8, fontSize: '1rem', fontWeight: 700, color: '#0f172a' }}>
+                {selectedCourse?.title || 'No course selected'}
+              </div>
+              <div style={{ marginTop: 6, fontSize: '0.86rem', color: '#64748b' }}>
+                {selectedCourse
+                  ? 'Only one live room is allowed at a time. Starting a class opens the room for enrolled students in this course.'
+                  : 'Choose a course above to prepare your single live room session.'}
+              </div>
+            </div>
 
             <button type="button" onClick={handleCreateRoom} style={primaryButtonStyle} disabled={submitting || loading || !selectedCourseId}>
               {submitting ? 'Starting...' : 'Start Live Class'}
@@ -177,39 +233,76 @@ export default function RoomsList() {
         <article style={panelStyle}>
           <div>
             <p style={eyebrowStyle}>{isLecturer ? 'PARTICIPANTS' : 'STUDENT'}</p>
-            <h2 style={{ margin: '6px 0 8px', fontSize: '1.2rem', color: '#0f172a' }}>Active Rooms</h2>
+            <h2 style={{ margin: '6px 0 8px', fontSize: '1.2rem', color: '#0f172a' }}>
+              {isLecturer ? 'Course Participants' : 'Active Rooms'}
+            </h2>
             <p style={{ margin: 0, color: '#64748b' }}>
               {isLecturer
-                ? 'These are active rooms for your managed courses.'
-                : 'Join any active room from your enrolled courses.'}
+                ? 'Students enrolled in the selected course are the participants for the room you create.'
+                : 'See only the latest active room per lecturer from your enrolled courses.'}
             </p>
           </div>
 
-          {loading ? (
-            <div style={{ color: '#64748b' }}>Loading active rooms...</div>
-          ) : activeRooms.length === 0 ? (
-            <div style={infoCardStyle}>
-              <div style={{ color: '#334155' }}>
-                No active rooms available right now.
+          {isLecturer ? (
+            !selectedCourseId ? (
+              <div style={infoCardStyle}>
+                <div style={{ color: '#334155' }}>Select a course to view participants.</div>
               </div>
-            </div>
-          ) : (
-            <div style={{ display: 'grid', gap: 10 }}>
-              {activeRooms.map((room) => (
-                <div key={room.roomId} style={infoCardStyle}>
-                  <div style={{ fontWeight: 700, color: '#0f172a' }}>{room.course?.title || `Course #${room.courseId}`}</div>
-                  <div style={{ fontSize: '0.88rem', color: '#64748b', margin: '4px 0 10px' }}>
-                    Room ID: {room.roomId}
+            ) : loadingParticipants ? (
+              <div style={{ color: '#64748b' }}>Loading participants...</div>
+            ) : selectedCourseEnrollments.length === 0 ? (
+              <div style={infoCardStyle}>
+                <div style={{ color: '#334155' }}>No students enrolled in this course yet.</div>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gap: 10 }}>
+                {selectedCourseEnrollments.map((row) => (
+                  <div key={row.id || row.student?.id || row.student_id} style={infoCardStyle}>
+                    <div style={{ fontWeight: 700, color: '#0f172a' }}>
+                      {row.student?.full_name || row.student_id || 'Student'}
+                    </div>
+                    <div style={{ fontSize: '0.88rem', color: '#64748b', marginTop: 4 }}>
+                      {row.student?.student_id ? `ID: ${row.student.student_id}` : ''}
+                      {row.student?.email ? ` • ${row.student.email}` : ''}
+                    </div>
                   </div>
-                  <button type="button" onClick={() => handleJoinRoom(room.roomId)} style={primaryButtonStyle}>
-                    Join Room
-                  </button>
+                ))}
+              </div>
+            )
+          ) : (
+            loading ? (
+              <div style={{ color: '#64748b' }}>Loading active rooms...</div>
+            ) : activeRooms.length === 0 ? (
+              <div style={infoCardStyle}>
+                <div style={{ color: '#334155' }}>
+                  There is no active room right now.
                 </div>
-              ))}
-            </div>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gap: 10 }}>
+                {activeRooms.map((room) => (
+                  <div key={room.roomId} style={infoCardStyle}>
+                    <div style={{ fontWeight: 700, color: '#0f172a' }}>{room.course?.title || `Course #${room.courseId}`}</div>
+                    <div style={{ fontSize: '0.88rem', color: '#64748b', margin: '4px 0 10px' }}>
+                      {(() => {
+                        const ln = cleanLecturerName(room.course?.lecturerName);
+                        const parts = [];
+                        if (ln) parts.push(`Lecturer: ${ln}`);
+                        parts.push(`Room ID: ${room.roomId}`);
+                        return parts.join(' · ');
+                      })()}
+                    </div>
+                    <button type="button" onClick={() => handleJoinRoom(room.roomId)} style={primaryButtonStyle}>
+                      Join Room
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )
           )}
         </article>
       </section>
+      </div>
     </div>
   );
 }
@@ -221,9 +314,9 @@ const heroCardStyle = {
   gap: 16,
   padding: '24px 26px',
   borderRadius: 16,
-  background: 'linear-gradient(135deg, #eff6ff 0%, #f8fafc 55%, #ecfeff 100%)',
-  border: '1px solid #dbeafe',
-  boxShadow: '0 8px 24px rgba(15, 23, 42, 0.06)'
+  background: '#fff',
+  border: '1px solid #e4e8f0',
+  boxShadow: '0 1px 2px rgba(16,24,40,0.05),0 8px 16px rgba(16,24,40,0.04)'
 };
 
 const gridStyle = {
@@ -239,7 +332,7 @@ const panelStyle = {
   borderRadius: 14,
   background: '#ffffff',
   border: '1px solid #e2e8f0',
-  boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
+  boxShadow: '0 1px 2px rgba(16,24,40,0.05),0 8px 16px rgba(16,24,40,0.04)'
 };
 
 const infoCardStyle = {
@@ -300,16 +393,24 @@ const badgeStyle = {
   whiteSpace: 'nowrap'
 };
 
-const liveNowBadgeStyle = {
+const modernCourseCardStyle = {
+  padding: '14px 16px',
+  borderRadius: 14,
+  border: '1px solid #dbeafe',
+  background: '#f8fbff',
+  boxShadow: 'none'
+};
+
+const singleRoomBadgeStyle = {
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
   padding: '4px 10px',
   borderRadius: 999,
-  background: '#dcfce7',
-  border: '1px solid #86efac',
-  color: '#166534',
-  fontSize: '0.78rem',
+  background: '#dbeafe',
+  border: '1px solid #93c5fd',
+  color: '#1d4ed8',
+  fontSize: '0.74rem',
   fontWeight: 700,
-  letterSpacing: '0.03em'
+  letterSpacing: '0.04em'
 };

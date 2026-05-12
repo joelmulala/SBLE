@@ -93,6 +93,8 @@ const authorizeCourseAccess = (resolveCourseId, { managerOnly = false, managerMe
 
 // Attach user info from authenticated token to req.user
 const attachUser = (req, res, next) => {
+  if (req.user?.id) return next();
+
   const token = req.kauth?.grant?.access_token?.content;
   if (token) {
     const roles = token.realm_access?.roles || [];

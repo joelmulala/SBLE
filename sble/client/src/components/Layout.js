@@ -5,12 +5,19 @@ import useNotifications from '../hooks/useNotifications';
 import styles from './Layout.module.css';
 
 export default function Layout() {
+  const location = useLocation();
   const navigate = useNavigate();
   const { keycloak } = useKeycloak();
   const { notifications, dismiss } = useNotifications();
   const [showNotifs, setShowNotifs] = useState(false);
   const isAdmin = keycloak.hasRealmRole('admin');
   const isLecturer = keycloak.hasRealmRole('lecturer') || keycloak.hasRealmRole('admin');
+  const roleThemeClass = isAdmin ? styles.roleAdmin : isLecturer ? styles.roleLecturer : styles.roleStudent;
+  const workspaceLabel = isAdmin
+    ? 'Administrator Workspace'
+    : isLecturer
+      ? 'Teaching Workspace'
+      : 'Learning Workspace';
 
   const lecturerNavItems = [
     {
@@ -53,87 +60,101 @@ export default function Layout() {
     dismiss(liveClassNotification.id);
   };
 
+  const sectionTitle = resolveSectionTitle(location.pathname);
+
   return (
-    <div className={styles.shell}>
+    <div className={`${styles.shell} ${roleThemeClass}`}>
       <nav className={styles.sidebar}>
-        <div className={styles.logo}>SBLE</div>
-
-        <SidebarGroup label="MAIN">
-          <NavItem to={isLecturer ? '/lecturer/dashboard' : '/student/dashboard'} end icon="🏠">Dashboard</NavItem>
-          <NavItem to="/rooms" icon="🎥" matchRoutes={[/^\/room\/[^/]+(?:\/)?$/, /^\/rooms\/[^/]+(?:\/)?$/]}>Live Classes</NavItem>
-        </SidebarGroup>
-
-        {isLecturer ? (
-          <div className={styles.lecturerNav}>
-            {lecturerNavItems.map((item) => (
-              <NavItem key={item.to} to={item.to} end={item.end} matchRoutes={item.matchRoutes}>
-                {item.label}
-              </NavItem>
-            ))}
+        <div className={styles.sidebarScrollable}>
+          <div className={styles.logoWrap}>
+            <div className={styles.logo}>SBLE</div>
+            <div className={styles.logoMeta}>Smart Blended Learning Environment</div>
           </div>
-        ) : (
-          <SidebarGroup label="ACADEMIC">
-            <NavItem to="/student/courses" end icon="📚" matchRoutes={[/^\/student\/courses\/[^/]+(?:\/)?$/]}>Courses</NavItem>
-            <NavItem to="/student/materials" end icon="📁" matchRoutes={[/^\/student\/courses\/[^/]+\/materials(?:\/)?$/]}>Materials</NavItem>
-            <NavItem to="/student/assignments" end icon="📝" matchRoutes={[/^\/student\/courses\/[^/]+\/assignments(?:\/)?$/]}>Assignments</NavItem>
-            <NavItem to="/student/quizzes" end icon="🧪" matchRoutes={[/^\/student\/courses\/[^/]+\/quizzes(?:\/)?$/]}>Quizzes</NavItem>
-          </SidebarGroup>
-        )}
 
-        {isAdmin && (
-          <SidebarGroup label="ADMIN">
-            <NavItem to="/users" icon="⚙️">Users</NavItem>
+          <SidebarGroup label="MAIN">
+            <NavItem to={isLecturer ? '/lecturer/dashboard' : '/student/dashboard'} end>Dashboard</NavItem>
+            <NavItem to="/rooms" matchRoutes={[/^\/room\/[^/]+(?:\/)?$/, /^\/rooms\/[^/]+(?:\/)?$/]}>Live Classes</NavItem>
           </SidebarGroup>
-        )}
+
+          {isLecturer ? (
+            <SidebarGroup label="ACADEMIC">
+              {lecturerNavItems.map((item) => (
+                <NavItem key={item.to} to={item.to} end={item.end} matchRoutes={item.matchRoutes}>
+                  {item.label}
+                </NavItem>
+              ))}
+            </SidebarGroup>
+          ) : (
+            <SidebarGroup label="ACADEMIC">
+              <NavItem to="/student/courses" end matchRoutes={[/^\/student\/courses\/[^/]+(?:\/)?$/]}>Courses</NavItem>
+              <NavItem to="/student/materials" end matchRoutes={[/^\/student\/courses\/[^/]+\/materials(?:\/)?$/]}>Materials</NavItem>
+              <NavItem to="/student/assignments" end matchRoutes={[/^\/student\/courses\/[^/]+\/assignments(?:\/)?$/]}>Assignments</NavItem>
+              <NavItem to="/student/quizzes" end matchRoutes={[/^\/student\/courses\/[^/]+\/quizzes(?:\/)?$/]}>Quizzes</NavItem>
+            </SidebarGroup>
+          )}
+
+          {isAdmin && (
+            <SidebarGroup label="ADMIN">
+              <NavItem to="/users">Users</NavItem>
+            </SidebarGroup>
+          )}
+        </div>
 
         <button className={styles.logout} onClick={() => keycloak.logout()}>Logout</button>
       </nav>
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-        {/* Top bar */}
-        <div style={{ background: '#fff', borderBottom: '1px solid #eee', padding: '10px 32px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12 }}>
+      <div className={styles.mainPanel}>
+        <div className={styles.header}>
+          <div className={styles.headerLeft}>
+            <div className={styles.headerEyebrow}>{workspaceLabel}</div>
+            <div className={styles.headerTitle}>{sectionTitle}</div>
+          </div>
+          <div className={styles.headerActions}>
           <button onClick={() => setShowNotifs(!showNotifs)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', position: 'relative' }}>
-            🔔
+            className={styles.notificationButton}
+            aria-label="Toggle notifications"
+            type="button"
+          >
+            {showNotifs ? '×' : '◉'}
             {notifications.length > 0 && (
-              <span style={{ position: 'absolute', top: -4, right: -4, background: '#dc3545', color: '#fff', borderRadius: '50%', fontSize: '0.65rem', width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <span className={styles.notifBadge}>
                 {notifications.length}
               </span>
             )}
           </button>
-          <span style={{ fontSize: '0.9rem', color: '#666' }}>{keycloak.tokenParsed?.name}</span>
+          <span className={styles.userMeta}>{keycloak.tokenParsed?.name}</span>
+          </div>
         </div>
 
-        {/* Notification dropdown */}
         {showNotifs && (
-          <div style={{ position: 'absolute', right: 32, top: 52, background: '#fff', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', width: 320, zIndex: 100, padding: 12 }}>
-            <p style={{ fontWeight: 600, marginBottom: 8 }}>Notifications</p>
-            {notifications.length === 0 && <p style={{ color: '#aaa', fontSize: '0.9rem' }}>No new notifications</p>}
+          <div className={styles.popover}>
+            <p className={styles.popoverTitle}>Notifications</p>
+            {notifications.length === 0 && <p className={styles.emptyState}>No new notifications</p>}
             {notifications.map(n => (
-              <div key={n.id} style={{ padding: '8px 0', borderBottom: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <p style={{ fontSize: '0.88rem', color: '#333' }}>{n.message || n.title}</p>
-                <button onClick={() => dismiss(n.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#aaa', fontSize: '1rem' }}>×</button>
+              <div key={n.id} className={styles.notifItem}>
+                <p className={styles.notifMessage}>{n.message || n.title}</p>
+                <button onClick={() => dismiss(n.id)} className={styles.dismissButton} type="button">×</button>
               </div>
             ))}
           </div>
         )}
 
         {liveClassNotification && (
-          <div style={{ position: 'fixed', right: 28, bottom: 28, zIndex: 2000, width: 340, background: '#ffffff', border: '1px solid #bfdbfe', borderRadius: 12, boxShadow: '0 12px 30px rgba(2, 6, 23, 0.15)', padding: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'start', justifyContent: 'space-between', gap: 10 }}>
+          <div className={styles.liveAlert}>
+            <div className={styles.liveAlertTop}>
               <div>
-                <div style={{ fontSize: '0.84rem', fontWeight: 700, color: '#1d4ed8', letterSpacing: '0.04em' }}>LIVE CLASS</div>
-                <div style={{ marginTop: 4, color: '#0f172a', fontWeight: 600 }}>Live class started - Join now</div>
-                <div style={{ marginTop: 4, fontSize: '0.86rem', color: '#475569' }}>{liveClassNotification.message}</div>
+                <div className={styles.liveKicker}>LIVE CLASS</div>
+                <div className={styles.liveTitle}>Live class started - Join now</div>
+                <div className={styles.liveMessage}>{liveClassNotification.message}</div>
               </div>
-              <button onClick={() => dismiss(liveClassNotification.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '1.1rem', lineHeight: 1 }}>x</button>
+              <button onClick={() => dismiss(liveClassNotification.id)} className={styles.dismissButton} type="button">×</button>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
+            <div className={styles.joinWrap}>
               <button
                 type="button"
                 onClick={handleJoinLiveClass}
-                style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 12px', fontWeight: 600, cursor: 'pointer' }}
+                className={styles.joinButton}
               >
                 Join now
               </button>
@@ -151,27 +172,14 @@ export default function Layout() {
 
 function SidebarGroup({ label, children }) {
   return (
-    <div style={{ marginTop: 18 }}>
-      <div
-        style={{
-          fontSize: '0.72rem',
-          fontWeight: 700,
-          letterSpacing: '0.06em',
-          color: '#94a3b8',
-          marginBottom: 8,
-          padding: '0 2px'
-        }}
-      >
-        {label}
-      </div>
-      <div style={{ display: 'grid', gap: 4 }}>
-        {children}
-      </div>
+    <div className={styles.sidebarGroup}>
+      <div className={styles.sidebarLabel}>{label}</div>
+      <div className={styles.sidebarLinks}>{children}</div>
     </div>
   );
 }
 
-function NavItem({ to, children, icon, end = false, matchRoutes = [] }) {
+function NavItem({ to, children, end = false, matchRoutes = [] }) {
   const location = useLocation();
   const target = typeof to === 'string' ? to : '';
   const [pathname, hash = ''] = target.split('#');
@@ -200,9 +208,22 @@ function NavItem({ to, children, icon, end = false, matchRoutes = [] }) {
   const isActive = (isPrimaryPathActive || isMatchedRouteActive) && isHashActive;
 
   return (
-    <NavLink to={to} end={end} className={isActive ? styles.active : ''}>
-      {icon ? <span style={{ marginRight: 8 }}>{icon}</span> : null}
+    <NavLink to={to} end={end} className={`${styles.navLink} ${isActive ? styles.active : ''}`}>
       {children}
     </NavLink>
   );
+}
+
+function resolveSectionTitle(pathname) {
+  if (pathname.includes('/dashboard')) return 'Dashboard';
+  if (pathname.includes('/courses')) return 'Courses';
+  if (pathname.includes('/materials')) return 'Materials';
+  if (pathname.includes('/assignments')) return 'Assignments';
+  if (pathname.includes('/quizzes')) return 'Quizzes';
+  if (pathname.includes('/exams')) return 'Exams';
+  if (pathname.includes('/performance')) return 'Performance';
+  if (pathname.includes('/enrollment')) return 'Enrollment';
+  if (pathname.includes('/room')) return 'Live Classroom';
+  if (pathname.includes('/users')) return 'User Management';
+  return 'Learning Workspace';
 }

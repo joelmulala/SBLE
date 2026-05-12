@@ -43,6 +43,24 @@ export default function useNotifications() {
     es.addEventListener('live-class-started', handleLiveClassStarted);
     es.addEventListener('live_class_started', handleLiveClassStarted);
 
+    const handleLiveClassEnded = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        setNotifications((prev) => [{
+          id: Date.now(),
+          type: data.type || 'live_class_ended',
+          roomId: data.roomId || data.room_id,
+          courseId: data.courseId || data.course_id,
+          message: data.message || 'Live class ended',
+          ...data
+        }, ...prev]);
+      } catch (err) {
+        /* ignore */
+      }
+    };
+    es.addEventListener('live-class-ended', handleLiveClassEnded);
+    es.addEventListener('live_class_ended', handleLiveClassEnded);
+
     es.onerror = () => es.close();
 
     return () => es.close();

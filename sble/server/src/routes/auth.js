@@ -3,9 +3,8 @@ const { v4: uuidv4 } = require('uuid');
 const keycloak = require('../config/keycloak');
 const { signToken } = require('../config/auth');
 const { attachUser } = require('../middleware/auth');
+const { sendLoginNotification } = require('../services/email/emailService');
 const { User } = require('../models');
-
-const authDisabled = process.env.AUTH_DISABLED === 'true';
 const tempPasswords = {
   admin: process.env.TEMP_ADMIN_PASSWORD,
   lecturer: process.env.TEMP_LECTURER_PASSWORD,
@@ -72,13 +71,9 @@ const validateRegistrationPayload = (payload) => {
   return errors;
 };
 
-// Temporary JWT login while Keycloak is disabled
+// JWT login endpoint
 router.post('/login', async (req, res) => {
   try {
-    if (!authDisabled) {
-      return res.status(400).json({ error: 'Temporary login is disabled. Use Keycloak authentication.' });
-    }
-
     const email = String(req.body?.email || '').trim().toLowerCase();
     const password = String(req.body?.password || '');
 
@@ -108,6 +103,21 @@ router.post('/login', async (req, res) => {
       roles
     });
 
+    // Fire-and-forget login notification so auth response is not blocked by SMTP latency.
+    setImmediate(() => {
+      sendLoginNotification(
+        {
+          email: user.email,
+          full_name: user.full_name,
+          name: user.full_name
+        },
+        {
+          loginTime: new Date().toISOString(),
+          ip: req.ip || req.headers['x-forwarded-for'] || null
+        }
+      ).catch(() => {});
+    });
+
     res.json({
       token,
       user: {
@@ -123,13 +133,9 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// Temporary registration while Keycloak is disabled
+// JWT-backed registration endpoint
 router.post('/register', async (req, res) => {
   try {
-    if (!authDisabled) {
-      return res.status(400).json({ error: 'Temporary registration is disabled. Use Keycloak provisioning.' });
-    }
-
     const payload = {
       full_name: normalizeText(req.body?.full_name),
       email: normalizeEmail(req.body?.email),

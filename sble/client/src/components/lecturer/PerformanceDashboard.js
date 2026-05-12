@@ -3,17 +3,17 @@ import PerformanceBarChart from './PerformanceBarChart';
 import DistributionPieChart from './DistributionPieChart';
 
 const panelStyle = {
-  background: '#fff',
+  background: 'var(--color-surface)',
   borderRadius: 10,
   padding: 18,
-  boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
-  border: '1px solid #e7ecf5'
+  boxShadow: 'var(--shadow-soft)',
+  border: '1px solid var(--color-border)'
 };
 
 const categoryColor = {
-  Green: '#2ecc71',
-  Orange: '#f39c12',
-  Red: '#e74c3c'
+  Green: 'var(--color-accent-analytics-2)',
+  Orange: 'var(--color-accent-analytics-3)',
+  Red: 'var(--color-danger)'
 };
 
 export default function PerformanceDashboard({ rows = [], loading = false, error = '' }) {
@@ -40,14 +40,14 @@ export default function PerformanceDashboard({ rows = [], loading = false, error
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 10 }}>
         {Object.entries(summary).map(([key, count]) => (
           <div key={key} style={{ ...panelStyle, padding: '10px 14px', borderLeft: `4px solid ${categoryColor[key]}` }}>
-            <p style={{ margin: 0, color: '#666', fontSize: '0.85rem' }}>{key}</p>
+            <p style={{ margin: 0, color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>{key}</p>
             <p style={{ margin: 0, fontWeight: 700, fontSize: '1.2rem', color: categoryColor[key] }}>{count}</p>
           </div>
         ))}
       </div>
 
       {loading && <p style={{ marginTop: 12 }}>Loading performance...</p>}
-      {error && <p style={{ marginTop: 12, color: '#c0392b' }}>{error}</p>}
+      {error && <p style={{ marginTop: 12, color: 'var(--color-danger)' }}>{error}</p>}
 
       {!loading && !error && rows.length > 0 && (
         <>
@@ -70,17 +70,17 @@ export default function PerformanceDashboard({ rows = [], loading = false, error
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
-                  <th style={{ textAlign: 'left', borderBottom: '1px solid #eee', paddingBottom: 8 }}>Student ID</th>
-                  <th style={{ textAlign: 'left', borderBottom: '1px solid #eee', paddingBottom: 8 }}>Average Score</th>
-                  <th style={{ textAlign: 'left', borderBottom: '1px solid #eee', paddingBottom: 8 }}>Category</th>
+                  <th style={{ textAlign: 'left', borderBottom: '1px solid var(--color-border)', paddingBottom: 8 }}>Student ID</th>
+                  <th style={{ textAlign: 'left', borderBottom: '1px solid var(--color-border)', paddingBottom: 8 }}>Average Score</th>
+                  <th style={{ textAlign: 'left', borderBottom: '1px solid var(--color-border)', paddingBottom: 8 }}>Category</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row) => (
                   <tr key={row.student_id}>
-                    <td style={{ padding: '10px 0', borderBottom: '1px solid #f5f5f5' }}>{row.student_id}</td>
-                    <td style={{ padding: '10px 0', borderBottom: '1px solid #f5f5f5' }}>{row.average_score}</td>
-                    <td style={{ padding: '10px 0', borderBottom: '1px solid #f5f5f5', color: categoryColor[row.category] || '#555', fontWeight: 600 }}>
+                    <td style={{ padding: '10px 0', borderBottom: '1px solid var(--color-border)' }}>{row.student_id}</td>
+                    <td style={{ padding: '10px 0', borderBottom: '1px solid var(--color-border)' }}>{row.average_score}</td>
+                    <td style={{ padding: '10px 0', borderBottom: '1px solid var(--color-border)', color: categoryColor[row.category] || 'var(--color-text-muted)', fontWeight: 600 }}>
                       {row.category}
                     </td>
                   </tr>
@@ -92,7 +92,7 @@ export default function PerformanceDashboard({ rows = [], loading = false, error
       )}
 
       {!loading && !error && rows.length === 0 && (
-        <p style={{ marginTop: 12, color: '#777' }}>No performance data available</p>
+        <p style={{ marginTop: 12, color: 'var(--color-text-muted)' }}>No performance data available</p>
       )}
     </div>
   );

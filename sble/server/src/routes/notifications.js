@@ -3,8 +3,6 @@ const { addClient } = require('../services/notifications/sseService');
 const { verifyToken } = require('../config/auth');
 const logger = require('../config/logger');
 
-const authDisabled = process.env.AUTH_DISABLED === 'true';
-
 /**
  * SSE stream endpoint.
  * EventSource doesn't support custom headers, so the auth token
@@ -15,15 +13,7 @@ router.get('/stream', (req, res) => {
   if (!token) return res.status(401).json({ error: 'Token required' });
 
   try {
-    let payload;
-
-    if (authDisabled) {
-      payload = verifyToken(token);
-    } else {
-      const parts = token.split('.');
-      if (parts.length !== 3) return res.status(401).json({ error: 'Invalid token' });
-      payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
-    }
+    const payload = verifyToken(token);
 
     const userId = payload.sub;
     if (!userId) return res.status(401).json({ error: 'Invalid token payload' });

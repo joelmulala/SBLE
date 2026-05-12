@@ -32,4 +32,6 @@ const broadcast = (event, data) => {
   });
 };
 
-module.exports = { addClient, sendToUser, broadcast };
+const getClientCount = () => clients.size;
+
+module.exports = { addClient, sendToUser, broadcast, getClientCount };

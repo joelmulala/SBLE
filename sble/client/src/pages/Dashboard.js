@@ -1,15 +1,18 @@
-import React, { useEffect, useState } from 'react';
+import React, { useMemo, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useKeycloak } from '../auth/AuthProvider';
 import useAuthSync from '../hooks/useAuthSync';
 import api from '../config/api';
+import styles from './Dashboard.module.css';
 
 export default function Dashboard() {
   const { keycloak } = useKeycloak();
   useAuthSync();
 
   const name = keycloak.tokenParsed?.name || 'User';
-  const isLecturer = keycloak.hasRealmRole('lecturer') || keycloak.hasRealmRole('admin');
+  const isAdmin = keycloak.hasRealmRole('admin');
+  const isLecturer = keycloak.hasRealmRole('lecturer') || isAdmin;
+  const roleMode = isAdmin ? 'admin' : isLecturer ? 'lecturer' : 'student';
   const [stats, setStats] = useState({
     courses: 0,
     students: 0,
@@ -19,6 +22,7 @@ export default function Dashboard() {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [activeRooms, setActiveRooms] = useState([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -28,17 +32,19 @@ export default function Dashboard() {
       setError('');
 
       try {
-        const [coursesRes, assignmentsRes, quizzesRes, materialsRes] = await Promise.all([
+        const [coursesRes, assignmentsRes, quizzesRes, materialsRes, roomsRes] = await Promise.all([
           api.get('/courses'),
           api.get('/assignments').catch(() => ({ data: [] })),
           api.get('/quizzes').catch(() => ({ data: [] })),
-          api.get('/materials').catch(() => ({ data: [] }))
+          api.get('/materials').catch(() => ({ data: [] })),
+          api.get('/rooms/active').catch(() => ({ data: [] }))
         ]);
 
         const courses = Array.isArray(coursesRes.data) ? coursesRes.data : [];
         const assignments = Array.isArray(assignmentsRes.data) ? assignmentsRes.data : [];
         const quizzes = Array.isArray(quizzesRes.data) ? quizzesRes.data : [];
         const materials = Array.isArray(materialsRes.data) ? materialsRes.data : [];
+        const rooms = Array.isArray(roomsRes.data) ? roomsRes.data : [];
 
         const enrollmentResults = isLecturer
           ? await Promise.all(courses.map((course) => api.get(`/courses/${course.id}/enrollments`).catch(() => ({ data: [] }))))
@@ -57,6 +63,7 @@ export default function Dashboard() {
             quizzes: quizzes.length,
             materials: materials.length
           });
+          setActiveRooms(rooms);
         }
       } catch (err) {
         if (!cancelled) {
@@ -74,100 +81,154 @@ export default function Dashboard() {
     return () => { cancelled = true; };
   }, [isLecturer]);
 
-  const cards = [
-    { label: 'Total Courses', value: stats.courses, color: '#2563eb', icon: '📚' },
-    { label: 'Total Students', value: isLecturer ? stats.students : 0, color: '#0f766e', icon: '👥' },
-    { label: 'Total Assignments', value: stats.assignments, color: '#16a34a', icon: '📝' },
-    { label: 'Total Quizzes', value: stats.quizzes, color: '#d97706', icon: '🧪' },
-    { label: 'Total Materials', value: stats.materials, color: '#7c3aed', icon: '📁' }
+  const keySignals = [
+    { label: 'Courses', value: stats.courses },
+    { label: isLecturer ? 'Learners' : 'Live Rooms', value: isLecturer ? stats.students : activeRooms.length },
+    { label: 'Assessments', value: stats.assignments + stats.quizzes }
   ];
 
   const quickActions = [
-    { label: 'Create Course', to: '/lecturer/courses', color: '#2563eb' },
-    { label: 'Upload Material', to: '/lecturer/materials', color: '#7c3aed' },
-    { label: 'Create Assignment', to: '/lecturer/assignments', color: '#16a34a' },
-    { label: 'Create Quiz', to: '/lecturer/quizzes', color: '#d97706' }
+    { label: 'Create Course', to: '/lecturer/courses' },
+    { label: 'Upload Material', to: '/lecturer/materials' },
+    { label: 'Create Assignment', to: '/lecturer/assignments' },
+    { label: 'Create Quiz', to: '/lecturer/quizzes' }
   ];
 
-  return (
-    <div>
-      <div style={{ marginBottom: 8 }}>
-        <h1 style={{ marginBottom: 6 }}>Welcome back, {name}</h1>
-        <p style={{ color: '#667085', margin: 0 }}>
-          {isLecturer ? 'Here is your teaching overview for SBLE.' : 'Here is your learning overview for SBLE.'}
-        </p>
-      </div>
+  const roleHeader = {
+    admin: 'Institutional operations and system performance overview for SBLE.',
+    lecturer: 'Here is your teaching overview for SBLE.',
+    student: 'Here is your learning overview for SBLE.'
+  };
 
-      {error && <div style={{ ...noticeStyle, background: '#fef3f2', color: '#b42318', border: '1px solid #fecdca' }}>{error}</div>}
-      {loading && <p style={{ marginTop: 18 }}>Loading dashboard...</p>}
+  const activityFeed = useMemo(() => {
+    const items = [
+      `${stats.assignments} assignments currently published`,
+      `${stats.quizzes} quizzes configured`,
+      `${stats.materials} materials in circulation`,
+      `${activeRooms.length} live classroom session${activeRooms.length === 1 ? '' : 's'} active`
+    ];
+    if (isAdmin) {
+      items.unshift(`${stats.students} active enrollment records across managed courses`);
+    }
+    return items;
+  }, [stats, activeRooms.length, isAdmin]);
+
+  return (
+    <div className={`${styles.page} ${styles[`page${roleMode[0].toUpperCase()}${roleMode.slice(1)}`]}`}>
+      <section className={styles.intro}>
+        <div className={styles.roleKicker}>{roleMode}</div>
+        <h1 className="page-title">Welcome back, {name}</h1>
+        <p className="page-lead">
+          {roleHeader[roleMode]}
+        </p>
+      </section>
+
+      {error && <div className={styles.notice}>{error}</div>}
+      {loading && <p className={styles.loading}>Loading dashboard...</p>}
 
       {!loading && (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 16, marginTop: 24 }}>
-            {cards.map((card) => (
-              <StatCard key={card.label} {...card} />
+          <section className={styles.signalRow}>
+            {keySignals.map((signal) => (
+              <StatCard key={signal.label} label={signal.label} value={signal.value} />
             ))}
-          </div>
+          </section>
 
-          {isLecturer && (
-            <section style={sectionStyle}>
-              <div style={{ marginBottom: 14 }}>
-                <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Quick Actions</h2>
-                <p style={{ margin: '6px 0 0', color: '#667085' }}>Jump straight to your most common lecturer tasks.</p>
-              </div>
+          <section className={styles.workspaceLayout}>
+            {isAdmin ? (
+              <Surface
+                title="Institutional Snapshot"
+                lead="Monitor operational reliability, user governance, and platform readiness."
+                element="article"
+              >
+                <ul className={styles.feedList}>
+                  {activityFeed.map((item) => <li key={item}>{item}</li>)}
+                </ul>
+              </Surface>
+            ) : (
+              <Surface
+                title="Academic Activity"
+                lead="Keep course delivery, assessments, and resources synchronized."
+                element="article"
+              >
+                <ul className={styles.feedList}>
+                  {activityFeed.map((item) => <li key={item}>{item}</li>)}
+                </ul>
+              </Surface>
+            )}
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-                {quickActions.map((action) => (
-                  <Link key={action.label} to={action.to} style={{ ...actionLinkStyle, borderLeft: `4px solid ${action.color}` }}>
-                    {action.label}
+            {isAdmin ? (
+              <Surface
+                title="System Management"
+                lead="High-impact controls for institutional administration."
+                element="aside"
+              >
+                <div className={styles.actionList}>
+                  <Link to="/users" className={styles.actionLink}>
+                    Manage users and roles
+                    <span className={styles.arrow}>→</span>
                   </Link>
-                ))}
-              </div>
-            </section>
-          )}
+                  <Link to="/rooms" className={styles.actionLink}>
+                    Monitor active live classrooms
+                    <span className={styles.arrow}>→</span>
+                  </Link>
+                </div>
+              </Surface>
+            ) : isLecturer ? (
+              <Surface
+                title="Quick Actions"
+                lead="Jump to high-frequency lecturer workflows."
+                element="aside"
+              >
+                <div className={styles.actionList}>
+                  {quickActions.map((action) => (
+                    <Link key={action.label} to={action.to} className={styles.actionLink}>
+                      {action.label}
+                      <span className={styles.arrow}>→</span>
+                    </Link>
+                  ))}
+                </div>
+              </Surface>
+            ) : (
+              <Surface
+                title="Learning Continuity"
+                lead="Keep momentum through materials, assignments, and quizzes."
+                element="aside"
+              >
+                <ul className={styles.feedList}>
+                  <li>Review newly uploaded material before starting graded tasks.</li>
+                  <li>Submit assignments before quizzes to preserve sequence quality.</li>
+                  <li>Join active live classrooms to maintain instructional continuity.</li>
+                </ul>
+              </Surface>
+            )}
+          </section>
         </>
       )}
     </div>
   );
 }
 
-function StatCard({ label, value, color, icon }) {
+function StatCard({ label, value }) {
   return (
-    <div style={{ background: '#fff', borderRadius: 12, padding: '20px 22px', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', border: '1px solid #eef2f7', borderLeft: `4px solid ${color}`, minHeight: 112, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 8 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-        <p style={{ color: '#667085', fontSize: '0.88rem', margin: 0 }}>{label}</p>
-        <span style={{ fontSize: '1.2rem' }}>{icon}</span>
-      </div>
-      <p style={{ fontSize: '2rem', fontWeight: 700, color, margin: 0 }}>{value}</p>
-    </div>
+    <article className={styles.signalItem}>
+      <p className={styles.signalLabel}>{label}</p>
+      <p className={styles.signalValue}>{value}</p>
+    </article>
   );
 }
 
-const sectionStyle = {
-  marginTop: 24,
-  background: '#fff',
-  borderRadius: 12,
-  padding: '20px 22px',
-  boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
-  border: '1px solid #eef2f7'
-};
-
-const actionLinkStyle = {
-  display: 'flex',
-  alignItems: 'center',
-  minHeight: 48,
-  padding: '12px 14px',
-  borderRadius: 10,
-  textDecoration: 'none',
-  color: '#1f2937',
-  fontWeight: 600,
-  background: '#f8fafc',
-  border: '1px solid #e5e7eb'
-};
-
-const noticeStyle = {
-  borderRadius: 8,
-  padding: '10px 12px',
-  marginTop: 14,
-  fontSize: '0.92rem'
-};
+function Surface({ title, lead, children, element = 'section' }) {
+  const Element = element;
+  return (
+    <Element className={styles.surface}>
+      <div className={styles.surfaceHeader}>
+        <h2 className={styles.surfaceTitle}>{title}</h2>
+        {lead ? <p className={styles.surfaceLead}>{lead}</p> : null}
+      </div>
+      <div className={styles.surfaceBody}>
+        {children}
+      </div>
+    </Element>
+  );
+}

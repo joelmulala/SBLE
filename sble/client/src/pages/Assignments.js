@@ -210,14 +210,20 @@ export default function Assignments() {
   };
 
   return (
-    <div>
-      <h2>Assignments</h2>
-      {loading && <p style={{ marginTop: 12, color: '#666' }}>Loading assignments...</p>}
-      {error && <p style={{ marginTop: 12, color: '#c0392b' }}>{error}</p>}
-      {message && <p style={{ marginTop: 12, color: message.toLowerCase().includes('failed') || message.toLowerCase().includes('passed') ? '#c0392b' : '#2c3e50' }}>{message}</p>}
+    <div className="app-page">
+      <div className="app-container app-stack">
+      <section className="app-surface">
+        <div className="app-surface-body">
+          <p className="app-kicker">{isLecturer ? 'Assessment Management' : 'Assessment Submission'}</p>
+          <h1 className="page-title" style={{ marginTop: '0.35rem' }}>Assignments</h1>
+        </div>
+      </section>
+      {loading && <p className="app-meta">Loading assignments...</p>}
+      {error && <p style={{ color: '#c0392b' }}>{error}</p>}
+      {message && <p style={{ color: message.toLowerCase().includes('failed') || message.toLowerCase().includes('passed') ? '#c0392b' : '#2c3e50' }}>{message}</p>}
 
       {isLecturer && (
-        <form onSubmit={createAssignment} style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 480 }}>
+        <form onSubmit={createAssignment} className="app-surface app-surface-body" style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 640 }}>
           <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Title" required
             style={inputStyle} />
           <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Description"
@@ -240,13 +246,13 @@ export default function Assignments() {
         </form>
       )}
 
-      <ul style={{ marginTop: 24, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 12, padding: 0 }}>
+      <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 12, padding: 0 }}>
         {assignments.map((assignment) => {
           const submission = assignment.mySubmission || null;
           const status = getAssignmentStatus(assignment);
 
           return (
-            <li key={assignment.id} style={{ background: '#fff', padding: 16, borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.07)' }}>
+            <li key={assignment.id} className="app-surface app-surface-body">
               <h3 style={{ marginTop: 0 }}>{assignment.title}</h3>
               <p style={{ color: '#666', marginTop: 4 }}>{assignment.description}</p>
               {assignment.due_date && <p style={{ color: '#98a2b3', fontSize: '0.85rem', marginTop: 4 }}>Due: {new Date(assignment.due_date).toLocaleString()}</p>}
@@ -362,6 +368,7 @@ export default function Assignments() {
         })}
         {!loading && assignments.length === 0 && <p style={{ color: '#888' }}>No assignments yet.</p>}
       </ul>
+      </div>
     </div>
   );
 }

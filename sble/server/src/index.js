@@ -9,6 +9,7 @@ const { createServer } = require('http');
 const { sequelize } = require('./models');
 const keycloak = require('./config/keycloak');
 const logger = require('./config/logger');
+const { notFoundHandler, errorHandler } = require('./middleware/errorMiddleware');
 const initWebRTC = require('./services/webrtc/signalingServer');
 const initQuizTimer = require('./services/scheduler/quizTimer');
 
@@ -22,9 +23,52 @@ const examRoutes = require('./routes/exams');
 const roomRoutes = require('./routes/rooms');
 const notificationRoutes = require('./routes/notifications');
 const userRoutes = require('./routes/users');
+const debugRoutes = require('./routes/debug');
 
 const app = express();
 const httpServer = createServer(app);
+
+const PERFORMANCE_SERVICE_URL = process.env.PERFORMANCE_SERVICE_URL || 'http://localhost:8000/analyze-performance';
+const PERFORMANCE_SERVICE_TIMEOUT_MS = Number.parseInt(process.env.PERFORMANCE_SERVICE_TIMEOUT_MS || '2000', 10);
+
+const requiredEnvVars = [
+  'JWT_SECRET',
+  'ENCRYPTION_KEY',
+  'DB_HOST',
+  'DB_NAME',
+  'DB_USER'
+];
+
+const validateRequiredEnv = () => {
+  const missing = requiredEnvVars.filter((key) => !String(process.env[key] || '').trim());
+  if (missing.length) {
+    const message = `Missing required environment variables: ${missing.join(', ')}`;
+    logger.error(message);
+    throw new Error(message);
+  }
+};
+
+const toApiMessage = (statusCode, payload) => {
+  if (payload?.message) return payload.message;
+  if (payload?.error) return payload.error;
+  if (statusCode >= 500) return 'Internal server error';
+  if (statusCode >= 400) return 'Request failed';
+  return 'OK';
+};
+
+const isPlainObject = (value) => (
+  value !== null
+  && typeof value === 'object'
+  && Object.getPrototypeOf(value) === Object.prototype
+);
+
+const toSerializableObject = (payload) => {
+  if (!payload || typeof payload !== 'object') return payload;
+  if (typeof payload.toJSON === 'function') {
+    return payload.toJSON();
+  }
+  return payload;
+};
 
 // Redis client — optional, falls back to in-memory sessions if not configured
 let redisClient = null;
@@ -43,9 +87,75 @@ if (process.env.REDIS_HOST) {
 
 // Security middleware
 app.use(helmet());
-app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:3000', credentials: true }));
+
+const configuredOrigins = (process.env.CORS_ALLOWED_ORIGINS || process.env.CLIENT_URL || 'http://localhost:3000')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow non-browser clients and same-origin requests without an Origin header.
+    if (!origin) return callback(null, true);
+
+    if (configuredOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+// Normalize API JSON responses while preserving existing payload contracts.
+app.use('/api', (req, res, next) => {
+  const originalJson = res.json.bind(res);
+
+  res.json = (payload) => {
+    const statusCode = res.statusCode || 200;
+    const success = statusCode < 400;
+
+    if (
+      payload
+      && typeof payload === 'object'
+      && !Array.isArray(payload)
+      && Object.prototype.hasOwnProperty.call(payload, 'success')
+      && Object.prototype.hasOwnProperty.call(payload, 'message')
+      && Object.prototype.hasOwnProperty.call(payload, 'data')
+    ) {
+      return originalJson(payload);
+    }
+
+    if (Array.isArray(payload)) {
+      return originalJson({ success, message: toApiMessage(statusCode, payload), data: payload });
+    }
+
+    if (payload && typeof payload === 'object') {
+      const normalizedPayload = toSerializableObject(payload);
+      const message = toApiMessage(statusCode, normalizedPayload);
+      const data = success
+        ? normalizedPayload
+        : (isPlainObject(normalizedPayload) && Object.keys(normalizedPayload).length > 1 ? normalizedPayload : null);
+
+      if (isPlainObject(normalizedPayload)) {
+        return originalJson({ success, message, data, ...normalizedPayload });
+      }
+
+      return originalJson({ success, message, data });
+    }
+
+    return originalJson({ success, message: toApiMessage(statusCode, payload), data: payload ?? null });
+  };
+
+  next();
+});
 
 // Rate limiting
 const apiWindowMs = Number.parseInt(process.env.RATE_LIMIT_WINDOW_MS || `${15 * 60 * 1000}`, 10);
@@ -87,12 +197,8 @@ if (redisClient) {
 }
 app.use(session(sessionConfig));
 
-// Keycloak middleware
-if (process.env.AUTH_DISABLED !== 'true') {
-  app.use(keycloak.middleware());
-} else {
-  logger.warn('AUTH_DISABLED=true — Keycloak middleware bypassed for MVP development');
-}
+// Auth middleware compatibility shim
+app.use(keycloak.middleware());
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -104,15 +210,46 @@ app.use('/api/exams', examRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/admin/debug', debugRoutes);
 
-// Health check
-app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+// Health check with dependency status.
+app.get('/api/health', async (req, res) => {
+  const health = {
+    api: 'up',
+    database: 'down',
+    performanceService: 'down',
+    timestamp: new Date().toISOString()
+  };
 
-// Global error handler
-app.use((err, req, res, next) => {
-  logger.error(err.stack);
-  res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+  try {
+    await sequelize.authenticate();
+    health.database = 'up';
+  } catch (err) {
+    logger.error('Health check database probe failed:', err.message);
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), PERFORMANCE_SERVICE_TIMEOUT_MS);
+  try {
+    const response = await fetch(PERFORMANCE_SERVICE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ students: [] }),
+      signal: controller.signal
+    });
+    if (response.ok) health.performanceService = 'up';
+  } catch (_) {
+    // Service is optional; keep as down.
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  const statusCode = health.database === 'up' ? 200 : 503;
+  return res.status(statusCode).json(health);
 });
+
+app.use(notFoundHandler);
+app.use(errorHandler);
 
 // Init WebRTC signaling over WebSocket
 initWebRTC(httpServer, redisClient);
@@ -122,12 +259,38 @@ initQuizTimer();
 
 const PORT = process.env.PORT || 5000;
 
-sequelize.authenticate()
-  .then(() => {
-    logger.info('Database connected');
+const connectToDatabaseWithRetry = async ({ retries = 5, delayMs = 2000 } = {}) => {
+  for (let attempt = 1; attempt <= retries; attempt += 1) {
+    try {
+      await sequelize.authenticate();
+      logger.info('Database connected');
+      return;
+    } catch (err) {
+      logger.error(`Database connection failed (attempt ${attempt}/${retries}): ${err.message}`);
+      if (attempt === retries) throw err;
+      await new Promise((resolve) => setTimeout(resolve, delayMs * attempt));
+    }
+  }
+};
+
+process.on('unhandledRejection', (reason) => {
+  const detail = reason instanceof Error ? `${reason.message}\n${reason.stack}` : String(reason);
+  logger.error(`Unhandled promise rejection: ${detail}`);
+});
+
+process.on('uncaughtException', (err) => {
+  logger.error(`Uncaught exception: ${err.message}\n${err.stack}`);
+});
+
+const startServer = async () => {
+  try {
+    validateRequiredEnv();
+    await connectToDatabaseWithRetry();
     httpServer.listen(PORT, () => logger.info(`SBLE server running on port ${PORT}`));
-  })
-  .catch(err => {
-    logger.error('Database connection failed:', err);
+  } catch (err) {
+    logger.error('Server startup failed:', err);
     process.exit(1);
-  });
+  }
+};
+
+startServer();

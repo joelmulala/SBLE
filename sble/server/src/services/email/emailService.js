@@ -1,43 +1,191 @@
 const nodemailer = require('nodemailer');
 const logger = require('../../config/logger');
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: parseInt(process.env.SMTP_PORT || '587'),
-  secure: process.env.SMTP_SECURE === 'true',
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS
-  }
-});
-
+const EMAIL_MODE = String(process.env.EMAIL_MODE || 'dev').toLowerCase();
+const EMAIL_ENABLED = String(process.env.EMAIL_ENABLED || 'false').toLowerCase() === 'true';
 const FROM = process.env.SMTP_FROM || 'SBLE <no-reply@sble.local>';
 
-const sendMail = async ({ to, subject, html }) => {
-  if (!process.env.SMTP_HOST) {
-    logger.warn('SMTP not configured — skipping email');
-    return;
+let transporterPromise = null;
+let lastEmailDispatch = null;
+
+const createGmailTransporter = async () => {
+  const user = process.env.GMAIL_USER;
+  const pass = process.env.GMAIL_APP_PASSWORD;
+
+  if (!user || !pass) {
+    logger.warn('Email mode is demo/production but GMAIL_USER or GMAIL_APP_PASSWORD is missing');
+    return null;
   }
+
+  return nodemailer.createTransport({
+    service: 'gmail',
+    auth: { user, pass }
+  });
+};
+
+const createDevTransporter = async () => {
+  const testAccount = await nodemailer.createTestAccount();
+  return nodemailer.createTransport({
+    host: 'smtp.ethereal.email',
+    port: 587,
+    secure: false,
+    auth: {
+      user: testAccount.user,
+      pass: testAccount.pass
+    }
+  });
+};
+
+const getTransporter = async () => {
+  if (!EMAIL_ENABLED) return null;
+
+  if (!transporterPromise) {
+    transporterPromise = (async () => {
+      if (EMAIL_MODE === 'demo' || EMAIL_MODE === 'production') {
+        return createGmailTransporter();
+      }
+      return createDevTransporter();
+    })();
+  }
+
+  return transporterPromise;
+};
+
+const sendEmail = async (to, subject, html) => {
+  const startedAt = new Date().toISOString();
+
+  if (!EMAIL_ENABLED) {
+    logger.info(`[EMAIL DISABLED] Skipping "${subject}"`);
+    lastEmailDispatch = {
+      to,
+      subject,
+      mode: EMAIL_MODE,
+      enabled: EMAIL_ENABLED,
+      attemptedAt: startedAt,
+      status: 'skipped',
+      reason: 'EMAIL_ENABLED=false'
+    };
+    return { skipped: true, reason: 'EMAIL_ENABLED=false' };
+  }
+
+  const transporter = await getTransporter();
+  if (!transporter) {
+    lastEmailDispatch = {
+      to,
+      subject,
+      mode: EMAIL_MODE,
+      enabled: EMAIL_ENABLED,
+      attemptedAt: startedAt,
+      status: 'skipped',
+      reason: 'missing-email-transporter'
+    };
+    return { skipped: true, reason: 'missing-email-transporter' };
+  }
+
   try {
-    await transporter.sendMail({ from: FROM, to, subject, html });
+    const info = await transporter.sendMail({ from: FROM, to, subject, html });
     logger.info(`Email sent to ${to}: ${subject}`);
+    const previewUrl = EMAIL_MODE === 'dev' ? nodemailer.getTestMessageUrl(info) : null;
+
+    if (previewUrl) logger.info(`Ethereal preview URL: ${previewUrl}`);
+
+    lastEmailDispatch = {
+      to,
+      subject,
+      mode: EMAIL_MODE,
+      enabled: EMAIL_ENABLED,
+      attemptedAt: startedAt,
+      status: 'sent',
+      messageId: info.messageId,
+      previewUrl
+    };
+
+    return { sent: true, messageId: info.messageId };
   } catch (err) {
-    logger.error('Email send failed:', err.message);
+    logger.error(`Email send failed: ${err?.message || 'unknown error'}`);
+    lastEmailDispatch = {
+      to,
+      subject,
+      mode: EMAIL_MODE,
+      enabled: EMAIL_ENABLED,
+      attemptedAt: startedAt,
+      status: 'failed',
+      error: err.message
+    };
+    return { sent: false, error: err.message };
   }
 };
 
-module.exports = {
-  sendGradeNotification: (email, assignmentTitle, grade, feedback) =>
-    sendMail({
-      to: email,
-      subject: `Your submission for "${assignmentTitle}" has been graded`,
-      html: `<p>You received a grade of <strong>${grade}</strong>.</p>${feedback ? `<p>Feedback: ${feedback}</p>` : ''}`
-    }),
+const getEmailDiagnostics = () => ({
+  mode: EMAIL_MODE,
+  enabled: EMAIL_ENABLED,
+  from: FROM,
+  provider: EMAIL_MODE === 'dev' ? 'ethereal' : 'gmail',
+  lastEmailDispatch
+});
 
-  sendExamReleaseNotification: (emails, examTitle, courseTitle) =>
-    sendMail({
-      to: emails.join(','),
-      subject: `Exam available: ${examTitle}`,
-      html: `<p>The exam <strong>${examTitle}</strong> for <strong>${courseTitle}</strong> is now available. Log in to download it.</p>`
-    })
+const sendLoginNotification = (user, context = {}) => {
+  const username = user?.full_name || user?.name || user?.email || 'User';
+  const loginTime = context.loginTime || new Date().toISOString();
+  const ip = context.ip || 'N/A';
+
+  return sendEmail(
+    user?.email,
+    'New login to your SBLE account',
+    `<p>Hello <strong>${username}</strong>,</p>
+     <p>A login to your SBLE account was detected.</p>
+     <ul>
+       <li><strong>Username:</strong> ${username}</li>
+       <li><strong>Login time:</strong> ${loginTime}</li>
+       <li><strong>IP:</strong> ${ip}</li>
+     </ul>
+     <p>If this was not you, please contact support immediately.</p>`
+  );
+};
+
+const sendAssignmentGraded = (user, assignment = {}) => {
+  const title = assignment.title || assignment.assignmentTitle || 'Assignment';
+  const grade = assignment.grade ?? 'N/A';
+  const feedback = assignment.feedback || '';
+
+  return sendEmail(
+    user?.email,
+    `Your submission for "${title}" has been graded`,
+    `<p>Hello <strong>${user?.full_name || user?.name || user?.email || 'Student'}</strong>,</p>
+     <p>Your assignment <strong>${title}</strong> has been graded.</p>
+     <p><strong>Grade:</strong> ${grade}</p>
+     ${feedback ? `<p><strong>Feedback:</strong> ${feedback}</p>` : ''}`
+  );
+};
+
+const sendExamReleased = (user, exam = {}) => {
+  const examTitle = exam.title || 'Exam';
+  const courseTitle = exam.courseTitle || exam.course || '';
+
+  return sendEmail(
+    user?.email,
+    `Exam available: ${examTitle}`,
+    `<p>Hello <strong>${user?.full_name || user?.name || user?.email || 'Student'}</strong>,</p>
+     <p>The exam <strong>${examTitle}</strong>${courseTitle ? ` for <strong>${courseTitle}</strong>` : ''} is now available.</p>
+     <p>Please log in to SBLE to access it.</p>`
+  );
+};
+
+// Backward-compatible wrappers to avoid breaking existing route code.
+const sendGradeNotification = (email, assignmentTitle, grade, feedback) =>
+  sendAssignmentGraded({ email }, { title: assignmentTitle, grade, feedback });
+
+const sendExamReleaseNotification = (emails, examTitle, courseTitle) => {
+  const recipients = Array.isArray(emails) ? emails.filter(Boolean) : [];
+  return Promise.all(recipients.map((email) => sendExamReleased({ email }, { title: examTitle, courseTitle })));
+};
+
+module.exports = {
+  sendEmail,
+  sendLoginNotification,
+  sendAssignmentGraded,
+  sendExamReleased,
+  sendGradeNotification,
+  sendExamReleaseNotification,
+  getEmailDiagnostics
 };

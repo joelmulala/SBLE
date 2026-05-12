@@ -1,57 +1,69 @@
-const Keycloak = require('keycloak-connect');
 const { verifyToken } = require('./auth');
 
-const authDisabled = process.env.AUTH_DISABLED === 'true';
-
-if (authDisabled) {
-  const buildGrant = (payload) => ({
-    grant: {
-      access_token: {
-        content: {
-          sub: payload.sub || payload.id,
-          email: payload.email,
-          name: payload.name,
-          realm_access: { roles: payload.roles || (payload.role ? [payload.role] : []) }
-        }
-      }
-    }
-  });
-
-  module.exports = {
-    protect: () => (req, res, next) => {
-      const authHeader = req.headers.authorization || '';
-      const token = authHeader.startsWith('Bearer ')
-        ? authHeader.slice(7).trim()
-        : null;
-
-      if (!token) {
-        return res.status(401).json({ error: 'Authentication required' });
-      }
-
-      try {
-        const payload = verifyToken(token);
-        req.kauth = buildGrant(payload);
-        req.auth = payload;
-        next();
-      } catch (_) {
-        return res.status(401).json({ error: 'Invalid or expired token' });
-      }
-    },
-    middleware: () => (req, res, next) => next()
-  };
-  return;
-}
-
-// Keycloak configuration pointing to our self-hosted instance
-const keycloakConfig = {
-  realm: process.env.KEYCLOAK_REALM,
-  'auth-server-url': process.env.KEYCLOAK_URL,
-  'ssl-required': 'external',
-  resource: process.env.KEYCLOAK_CLIENT_ID,
-  'public-client': true,
-  'confidential-port': 0
+const extractBearerToken = (authHeader = '') => {
+  if (typeof authHeader !== 'string') return null;
+  if (!authHeader.startsWith('Bearer ')) return null;
+  const token = authHeader.slice(7).trim();
+  return token || null;
 };
 
-const keycloak = new Keycloak({}, keycloakConfig);
+const normalizeRoles = (payload = {}) => {
+  if (Array.isArray(payload.roles) && payload.roles.length) return payload.roles;
+  if (Array.isArray(payload.realm_access?.roles) && payload.realm_access.roles.length) {
+    return payload.realm_access.roles;
+  }
+  if (payload.role) return [payload.role];
+  return [];
+};
 
-module.exports = keycloak;
+const buildUserFromPayload = (payload = {}) => {
+  const roles = normalizeRoles(payload);
+  return {
+    id: payload.sub || payload.id,
+    email: payload.email || null,
+    name: payload.name || payload.full_name || null,
+    role: payload.role || roles[0] || null,
+    roles
+  };
+};
+
+const buildGrant = (user) => ({
+  grant: {
+    access_token: {
+      content: {
+        sub: user.id,
+        email: user.email,
+        name: user.name,
+        realm_access: { roles: user.roles || [] }
+      }
+    }
+  }
+});
+
+module.exports = {
+  // Keep keycloak-connect compatible shape while enforcing local JWT validation.
+  protect: () => (req, res, next) => {
+    const token = extractBearerToken(req.headers.authorization);
+    if (!token) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    try {
+      const payload = verifyToken(token);
+      const user = buildUserFromPayload(payload);
+
+      if (!user.id) {
+        return res.status(401).json({ error: 'Invalid token payload' });
+      }
+
+      req.auth = payload;
+      req.user = user;
+      req.kauth = buildGrant(user);
+      return next();
+    } catch (_) {
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+  },
+
+  middleware: () => (req, res, next) => next()
+};

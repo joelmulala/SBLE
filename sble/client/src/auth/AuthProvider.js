@@ -53,6 +53,12 @@ export function AuthProvider({ children }) {
     loadProfile();
   }, [loadProfile]);
 
+  useEffect(() => {
+    const handleUnauthorized = () => logout();
+    window.addEventListener('auth:unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('auth:unauthorized', handleUnauthorized);
+  }, [logout]);
+
   const login = useCallback(async (email, password) => {
     const response = await api.post('/auth/login', { email, password });
     const nextToken = response.data.token;

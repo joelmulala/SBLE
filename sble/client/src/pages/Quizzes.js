@@ -441,7 +441,9 @@ export default function Quizzes() {
     const hasActiveQuestions = Array.isArray(activeQuiz.QuizQuestions) && activeQuiz.QuizQuestions.length > 0;
 
     return (
-      <div style={{ maxWidth: 640 }}>
+      <div className="app-page">
+        <div className="app-container app-container--narrow">
+      <div className="app-surface app-surface-body" style={{ maxWidth: 760 }}>
         <h2>{activeQuiz.title}</h2>
         <p style={{ color: '#888', marginBottom: 20 }}>Time limit: {activeQuiz.time_limit_minutes} min</p>
 
@@ -554,13 +556,22 @@ export default function Quizzes() {
           </div>
         )}
       </div>
+      </div>
+      </div>
     );
   }
 
   return (
-    <div>
+    <div className="app-page">
+      <div className="app-container app-stack">
+      <section className="app-surface">
+        <div className="app-surface-body">
+          <p className="app-kicker">{isLecturer ? 'Quiz Authoring' : 'Quiz Attempts'}</p>
+          <h1 className="page-title" style={{ marginTop: '0.35rem' }}>{isLecturer ? 'Manage Quizzes' : 'Quizzes'}</h1>
+        </div>
+      </section>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <h2>{isLecturer ? 'Manage Quizzes' : 'Quizzes'}</h2>
+        <h2 style={{ fontSize: '1rem', color: '#667085', fontWeight: 500 }}>Assessments by course workflow</h2>
         {isLecturer && !creating && (
           <button onClick={() => setCreating(true)} style={{ background: '#4f8ef7', color: '#fff', padding: '8px 20px', borderRadius: 6, border: 'none', cursor: 'pointer' }}>
             + New Quiz
@@ -571,7 +582,7 @@ export default function Quizzes() {
       {error && <p style={{ marginTop: 12, color: '#c0392b' }}>{error}</p>}
 
       {isLecturer && creating && (
-        <form onSubmit={createQuiz} style={{ marginTop: 20, background: '#fff', padding: 20, borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.07)', maxWidth: 600 }}>
+        <form onSubmit={createQuiz} className="app-surface app-surface-body" style={{ maxWidth: 760 }}>
           <h3 style={{ marginBottom: 16 }}>{draftQuizTarget ? `Manage Questions • ${draftQuizTarget.title}` : 'Create Quiz'}</h3>
 
           {!draftQuizTarget && (
@@ -655,14 +666,14 @@ export default function Quizzes() {
         </form>
       )}
 
-      <ul style={{ marginTop: 24, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10, padding: 0 }}>
+      <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10, padding: 0 }}>
         {quizzes.map((quiz) => {
           const participants = participantsByQuiz[quiz.id] || [];
           const isParticipantsOpen = openParticipantsQuizId === quiz.id;
           const studentState = getStudentQuizState(quiz, quizAvailabilityById[quiz.id]);
 
           return (
-            <li key={quiz.id} style={{ background: '#fff', padding: 16, borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.07)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <li key={quiz.id} className="app-surface app-surface-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                 <div>
                   <strong>{quiz.title}</strong>
@@ -728,6 +739,7 @@ export default function Quizzes() {
         })}
         {!loading && quizzes.length === 0 && <p style={{ color: '#888', marginTop: 16 }}>No quizzes available yet.</p>}
       </ul>
+      </div>
     </div>
   );
 }
