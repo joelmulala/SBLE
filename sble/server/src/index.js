@@ -1,4 +1,5 @@
 require('dotenv').config();
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -10,6 +11,7 @@ const { sequelize } = require('./models');
 const keycloak = require('./config/keycloak');
 const logger = require('./config/logger');
 const { notFoundHandler, errorHandler } = require('./middleware/errorMiddleware');
+const { logRegisteredRoutes } = require('./debugRouteTable');
 const initWebRTC = require('./services/webrtc/signalingServer');
 const initQuizTimer = require('./services/scheduler/quizTimer');
 
@@ -27,6 +29,12 @@ const debugRoutes = require('./routes/debug');
 
 const app = express();
 const httpServer = createServer(app);
+
+logger.info('[SBLE DEBUG] Server entrypoint (this process)', {
+  file: path.resolve(__filename),
+  pid: process.pid,
+  argv: process.argv
+});
 
 const PERFORMANCE_SERVICE_URL = process.env.PERFORMANCE_SERVICE_URL || 'http://localhost:8000/analyze-performance';
 const PERFORMANCE_SERVICE_TIMEOUT_MS = Number.parseInt(process.env.PERFORMANCE_SERVICE_TIMEOUT_MS || '2000', 10);
@@ -200,6 +208,15 @@ app.use(session(sessionConfig));
 // Auth middleware compatibility shim
 app.use(keycloak.middleware());
 
+// TEMPORARY: log room-related requests before route dispatch (remove after debugging).
+app.use((req, res, next) => {
+  const url = req.originalUrl || req.url || '';
+  if (url.includes('/api/rooms') || url.includes('livekit-token')) {
+    logger.info(`[SBLE DEBUG REQ] ${req.method} originalUrl=${req.originalUrl} path=${req.path}`);
+  }
+  next();
+});
+
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/courses', courseRoutes);
@@ -208,6 +225,7 @@ app.use('/api/assignments', assignmentRoutes);
 app.use('/api/quizzes', quizRoutes);
 app.use('/api/exams', examRoutes);
 app.use('/api/rooms', roomRoutes);
+logger.info('[SBLE DEBUG] Mounted roomRoutes at /api/rooms', { stackLayers: roomRoutes.stack?.length });
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/admin/debug', debugRoutes);
@@ -248,6 +266,8 @@ app.get('/api/health', async (req, res) => {
   return res.status(statusCode).json(health);
 });
 
+logRegisteredRoutes(app, logger);
+
 app.use(notFoundHandler);
 app.use(errorHandler);
 
@@ -286,7 +306,11 @@ const startServer = async () => {
   try {
     validateRequiredEnv();
     await connectToDatabaseWithRetry();
-    httpServer.listen(PORT, () => logger.info(`SBLE server running on port ${PORT}`));
+    httpServer.listen(PORT, () => {
+      const addr = httpServer.address();
+      logger.info(`SBLE server running on port ${PORT}`);
+      logger.info('[SBLE DEBUG] HTTP listener bound', { address: addr, pid: process.pid, port: PORT });
+    });
   } catch (err) {
     logger.error('Server startup failed:', err);
     process.exit(1);

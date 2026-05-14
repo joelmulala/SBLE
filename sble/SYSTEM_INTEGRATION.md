@@ -292,6 +292,9 @@ All integration behaviour is controlled via environment variables in `server/.en
 | `SMTP_USER` | No | — | SMTP username |
 | `SMTP_PASS` | No | — | SMTP password |
 | `MINIO_ENDPOINT` | No | — | MinIO host (blank = local disk) |
+| `LIVEKIT_API_KEY` | No | — | LiveKit API key; if any of the three LiveKit vars are missing, `POST /api/rooms/:roomToken/livekit-token` returns 503 |
+| `LIVEKIT_API_SECRET` | No | — | LiveKit API secret |
+| `LIVEKIT_WS_URL` | No | — | LiveKit WebSocket URL (e.g. `wss://…`) returned to clients as `serverUrl` |
 | `CLIENT_URL` | No | http://localhost:3000 | CORS allowed origin |
 
 ### client/.env
@@ -302,6 +305,7 @@ All integration behaviour is controlled via environment variables in `server/.en
 | `REACT_APP_KEYCLOAK_URL` | http://localhost:8080 | Keycloak server URL |
 | `REACT_APP_KEYCLOAK_REALM` | sble | Keycloak realm |
 | `REACT_APP_KEYCLOAK_CLIENT_ID` | sble-client | Keycloak client ID |
+| `REACT_APP_CLASSROOM_BACKEND` | jitsi | `jitsi` = embedded Jitsi; `livekit` = native SBLE video (needs API `LIVEKIT_*` + token route) |
 
 ---
 

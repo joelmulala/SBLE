@@ -1,0 +1,39 @@
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.08rem 0.38rem;
+  border-radius: 4px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  color: #475569;
+  background: rgba(248, 250, 252, 0.95);
+}
+
+.badgeHand {
+  border-color: rgba(180, 83, 9, 0.35);
+  color: #92400e;
+  background: #fffbeb;
+}
+
+.badgeQuestion {
+  border-color: rgba(29, 78, 216, 0.35);
+  color: #1e40af;
+  background: #eff6ff;
+}
+
+.badgeAck {
+  border-color: rgba(15, 118, 110, 0.35);
+  color: #0f766e;
+  background: #ecfdf5;
+}

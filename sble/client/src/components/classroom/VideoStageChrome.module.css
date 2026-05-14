@@ -1,0 +1,61 @@
+.chrome {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.55rem;
+  z-index: 14;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  pointer-events: none;
+}
+
+.chrome > * {
+  pointer-events: auto;
+}
+
+.btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 0.38rem;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.82);
+  color: #e2e8f0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.btn:hover {
+  background: rgba(30, 41, 59, 0.92);
+  border-color: rgba(148, 163, 184, 0.55);
+}
+
+.btnActive {
+  border-color: rgba(45, 212, 191, 0.45);
+  background: rgba(15, 118, 110, 0.28);
+}
+
+.icon {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+}
+
+@media (max-width: 420px) {
+  .chrome {
+    top: 0.4rem;
+    right: 0.4rem;
+    gap: 0.25rem;
+  }
+
+  .btn {
+    padding: 0.32rem;
+  }
+}

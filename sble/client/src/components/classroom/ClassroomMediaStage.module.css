@@ -1,0 +1,15 @@
+.stagePlaceholder {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  background: #0a0f18;
+}
+
+.stageRoot {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}

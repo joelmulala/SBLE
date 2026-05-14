@@ -94,8 +94,12 @@ CREATE TABLE submissions (
   file_path VARCHAR(500),
   file_name VARCHAR(255),
   submission_type submission_type DEFAULT 'typed',
-  submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,  last_updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,  grade NUMERIC(5,2),
-  feedback TEXT
+  submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  last_updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  grade NUMERIC(5,2),
+  feedback TEXT,
+  results_published_at TIMESTAMP,
+  grading_status VARCHAR(24) NOT NULL DEFAULT 'pending'
 );
 
 -- Quizzes
@@ -128,7 +132,9 @@ CREATE TABLE quiz_attempts (
   answers JSONB,
   score NUMERIC(5,2),
   started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  submitted_at TIMESTAMP
+  submitted_at TIMESTAMP,
+  expires_at TIMESTAMP,
+  status VARCHAR(24) NOT NULL DEFAULT 'in_progress'
 );
 
 -- Exams

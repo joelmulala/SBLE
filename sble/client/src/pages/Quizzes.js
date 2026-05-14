@@ -1,7 +1,37 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { useKeycloak } from '../auth/AuthProvider';
 import api from '../config/api';
+import { validateQuizQuestionsForPublishClient, totalDurationMinutesFromForm } from '../utils/quizIntegrity';
+import {
+  resolveCourseAccessMessage,
+  formatSeconds,
+  getStudentQuizUiState,
+  useAssessmentRoles
+} from '../assessment';
+import {
+  AssessmentShell,
+  AssessmentPageHeader,
+  AssessmentCard,
+  AssessmentSectionTitle,
+  AssessmentMeta,
+  AssessmentAlert,
+  AssessmentEmpty,
+  AssessmentList,
+  AssessmentToolbar,
+  AssessmentDivider,
+  BtnPrimary,
+  BtnSecondary,
+  BtnAccent,
+  BtnDanger,
+  Field,
+  TextInput,
+  TextArea,
+  CardTitleRow,
+  StatusBadge,
+  SelectInput,
+  QueueItem
+} from '../components/assessment/AssessmentPrimitives';
+import s from '../components/assessment/AssessmentPrimitives.module.css';
 
 const ensureFourOptions = (options = []) => {
   const normalized = Array.isArray(options) ? options.map((option) => String(option ?? '')) : [];
@@ -41,9 +71,7 @@ const normalizeQuestionPayload = (question = {}) => ({
 export default function Quizzes() {
   const { courseId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { keycloak } = useKeycloak();
-  const isLecturer = keycloak.hasRealmRole('lecturer') || keycloak.hasRealmRole('admin');
-  const isStudent = keycloak.hasRealmRole('student');
+  const { isLecturer, isStudent } = useAssessmentRoles();
 
   const [quizzes, setQuizzes] = useState([]);
   const [quizAvailabilityById, setQuizAvailabilityById] = useState({});
@@ -51,7 +79,7 @@ export default function Quizzes() {
   const [answers, setAnswers] = useState({});
   const [result, setResult] = useState(null);
   const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({ title: '', time_limit_minutes: 30 });
+  const [form, setForm] = useState({ title: '', time_limit_minutes: 30, duration_hours: 0, duration_minutes: 30 });
   const [questions, setQuestions] = useState([createEmptyQuestion()]);
   const [openParticipantsQuizId, setOpenParticipantsQuizId] = useState(null);
   const [participantsByQuiz, setParticipantsByQuiz] = useState({});
@@ -61,6 +89,8 @@ export default function Quizzes() {
   const [loadingQuestions, setLoadingQuestions] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState(null);
+  const autoSaveTimerRef = useRef(null);
 
   const draftQuizId = searchParams.get('draftQuizId');
   const createMode = searchParams.get('create') === '1';
@@ -249,6 +279,27 @@ export default function Quizzes() {
     }
   };
 
+  useEffect(() => {
+    if (!activeQuiz || activeQuiz.attempt_id == null || result) return undefined;
+    const expMs = activeQuiz.attempt_expires_at ? new Date(activeQuiz.attempt_expires_at).getTime() : null;
+    if (!expMs) return undefined;
+    const tick = () => setSecondsLeft(Math.max(0, Math.floor((expMs - Date.now()) / 1000)));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [activeQuiz?.attempt_id, activeQuiz?.attempt_expires_at, activeQuiz?.id, result]);
+
+  useEffect(() => {
+    if (!activeQuiz?.attempt_id || result) return undefined;
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(() => {
+      api.put(`/quizzes/${activeQuiz.id}/attempt`, { answers }).catch(() => {});
+    }, 1500);
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
+  }, [answers, activeQuiz?.attempt_id, activeQuiz?.id, result]);
+
   const createQuiz = async (e) => {
     e.preventDefault();
     setError('');
@@ -277,8 +328,10 @@ export default function Quizzes() {
         return;
       }
 
+      const totalMin = totalDurationMinutesFromForm(form);
       const payload = {
         ...form,
+        time_limit_minutes: totalMin,
         course_id: courseId,
         questions: normalizedQuestions
       };
@@ -287,7 +340,7 @@ export default function Quizzes() {
 
       setCreating(false);
       setSearchParams({});
-      setForm({ title: '', time_limit_minutes: 30 });
+      setForm({ title: '', time_limit_minutes: 30, duration_hours: 0, duration_minutes: 30 });
       setQuestions([createEmptyQuestion()]);
     } catch (err) {
       setError(err?.response?.data?.error || 'Failed to save quiz.');
@@ -295,11 +348,23 @@ export default function Quizzes() {
   };
 
   const publishQuiz = async (quizId) => {
+    setError('');
     try {
-      const res = await api.patch(`/quizzes/${quizId}/publish`);
+      const qRes = await api.get(`/quizzes/${quizId}/questions`);
+      const list = Array.isArray(qRes.data) ? qRes.data : [];
+      const check = validateQuizQuestionsForPublishClient(list);
+      if (!check.valid) {
+        setError(`Cannot publish until fixed: ${check.errors.join(' ')}`);
+        return;
+      }
+      const res = await api.patch(`/quizzes/${quizId}/publish`, {});
       setQuizzes((prev) => prev.map((quiz) => (quiz.id === quizId ? { ...quiz, ...res.data, is_published: true } : quiz)));
     } catch (err) {
-      setError(err?.response?.data?.error || 'Failed to publish quiz.');
+      const payload = err?.response?.data;
+      const msg = Array.isArray(payload?.validation_errors)
+        ? payload.validation_errors.join(' ')
+        : (payload?.error || 'Failed to publish quiz.');
+      setError(msg);
     }
   };
 
@@ -439,383 +504,377 @@ export default function Quizzes() {
 
   if (activeQuiz) {
     const hasActiveQuestions = Array.isArray(activeQuiz.QuizQuestions) && activeQuiz.QuizQuestions.length > 0;
+    const timerClass = secondsLeft == null ? '' : secondsLeft < 60 ? s.timerUrgent : secondsLeft < 300 ? s.timerWarn : s.timerOk;
 
     return (
-      <div className="app-page">
-        <div className="app-container app-container--narrow">
-      <div className="app-surface app-surface-body" style={{ maxWidth: 760 }}>
-        <h2>{activeQuiz.title}</h2>
-        <p style={{ color: '#888', marginBottom: 20 }}>Time limit: {activeQuiz.time_limit_minutes} min</p>
+      <AssessmentShell>
+        <div className={s.attemptShell}>
+          <AssessmentPageHeader
+            kicker={isStudent ? 'Quiz attempt' : 'Preview'}
+            title={activeQuiz.title}
+            lead={`Time limit ${activeQuiz.time_limit_minutes} minutes · server enforced`}
+            toolbar={
+              secondsLeft != null ? (
+                <StatusBadge variant={secondsLeft < 60 ? 'danger' : secondsLeft < 300 ? 'warning' : 'success'}>
+                  {formatSeconds(secondsLeft)} left
+                </StatusBadge>
+              ) : null
+            }
+          />
 
-        {!hasActiveQuestions && (
-          <div style={{ background: '#fff4e5', color: '#b54708', padding: 14, borderRadius: 8, marginBottom: 12 }}>
-            This quiz is not available yet
-          </div>
-        )}
+          {secondsLeft != null ? <p className={timerClass}>Time remaining: {formatSeconds(secondsLeft)}</p> : null}
 
-        {activeQuiz.QuizQuestions?.map((q, i) => (
-          <div key={q.id} style={{ background: '#fff', padding: 16, borderRadius: 8, marginBottom: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.07)' }}>
-            <p style={{ fontWeight: 600 }}>{i + 1}. {q.question_text} <span style={{ color: '#aaa', fontWeight: 400 }}>({q.marks} mark{q.marks > 1 ? 's' : ''})</span></p>
+          {!hasActiveQuestions ? (
+            <AssessmentAlert type="warn">This quiz is not available yet.</AssessmentAlert>
+          ) : null}
 
-            {q.question_type === 'mcq' && q.options?.map((opt, oi) => (
-              <label key={oi} style={{ display: 'block', marginTop: 8, cursor: 'pointer' }}>
-                <input type="radio" name={`q_${q.id}`} value={opt}
-                  checked={answers[q.id] === opt}
-                  onChange={() => setAnswers((prev) => ({ ...prev, [q.id]: opt }))} />
-                {' '}{opt}
-              </label>
-            ))}
+          {activeQuiz.QuizQuestions?.map((q, i) => (
+            <div key={q.id} className={s.questionBlock}>
+              <p className={s.questionTitle}>
+                {i + 1}. {q.question_text}{' '}
+                <span className={s.meta}>
+                  ({q.marks} mark{q.marks > 1 ? 's' : ''})
+                </span>
+              </p>
 
-            {q.question_type === 'true_false' && ['True', 'False'].map((opt) => (
-              <label key={opt} style={{ display: 'block', marginTop: 8, cursor: 'pointer' }}>
-                <input type="radio" name={`q_${q.id}`} value={opt}
-                  checked={answers[q.id] === opt}
-                  onChange={() => setAnswers((prev) => ({ ...prev, [q.id]: opt }))} />
-                {' '}{opt}
-              </label>
-            ))}
+              {q.question_type === 'mcq' && q.options?.map((opt, oi) => (
+                <label key={oi} className={s.optionLabel}>
+                  <input
+                    type="radio"
+                    name={`q_${q.id}`}
+                    value={opt}
+                    checked={answers[q.id] === opt}
+                    onChange={() => setAnswers((prev) => ({ ...prev, [q.id]: opt }))}
+                  />
+                  {' '}
+                  {opt}
+                </label>
+              ))}
 
-            {q.question_type === 'short_answer' && (
-              <input value={answers[q.id] || ''} onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
-                placeholder="Your answer..." style={{ marginTop: 8, width: '100%', padding: '8px', borderRadius: 6, border: '1px solid #ddd' }} />
-            )}
-          </div>
-        ))}
+              {q.question_type === 'true_false' && ['True', 'False'].map((opt) => (
+                <label key={opt} className={s.optionLabel}>
+                  <input
+                    type="radio"
+                    name={`q_${q.id}`}
+                    value={opt}
+                    checked={answers[q.id] === opt}
+                    onChange={() => setAnswers((prev) => ({ ...prev, [q.id]: opt }))}
+                  />
+                  {' '}
+                  {opt}
+                </label>
+              ))}
 
-        {result ? (
-          <div style={{ background: '#f8fbff', border: '1px solid #dbeafe', padding: 20, borderRadius: 12, marginTop: 16, boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <div>
-                <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 700, color: '#1d4ed8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Quiz Result</p>
-                <h3 style={{ margin: '6px 0 0 0', color: '#111827' }}>You scored {result.score}/{result.totalMarks ?? 0}</h3>
-              </div>
-              <div style={{ background: '#dbeafe', color: '#1d4ed8', borderRadius: 999, padding: '8px 14px', fontWeight: 700 }}>
-                {result.totalMarks ? `${Math.round((Number(result.score || 0) / Number(result.totalMarks)) * 100)}%` : '0%'}
-              </div>
+              {q.question_type === 'short_answer' && (
+                <TextInput
+                  value={answers[q.id] || ''}
+                  onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
+                  placeholder="Your answer…"
+                  style={{ marginTop: 8 }}
+                />
+              )}
             </div>
+          ))}
 
-            {result.message && <p style={{ marginTop: 10, color: '#166534' }}>{result.message}</p>}
-            {result.auto_submitted && (
-              <div style={{ marginTop: 10, background: '#fff7ed', color: '#b45309', borderRadius: 8, padding: '10px 12px' }}>
-                Your time expired, so the quiz was submitted automatically.
-              </div>
-            )}
+          {result ? (
+            <div className={s.resultPanel}>
+              <CardTitleRow
+                title={`Result · ${result.score}/${result.totalMarks ?? 0}`}
+                aside={
+                  <StatusBadge variant="info">
+                    {result.totalMarks ? `${Math.round((Number(result.score || 0) / Number(result.totalMarks)) * 100)}%` : '0%'}
+                  </StatusBadge>
+                }
+              />
+              {result.message ? <AssessmentAlert type="success">{result.message}</AssessmentAlert> : null}
+              {result.auto_submitted ? (
+                <AssessmentAlert type="warn">Your time expired, so the quiz was submitted automatically.</AssessmentAlert>
+              ) : null}
 
-            {Array.isArray(result.feedback) && result.feedback.length > 0 && (
-              <div style={{ marginTop: 16 }}>
-                <strong style={{ color: '#111827' }}>Feedback</strong>
-                <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
-                  {result.feedback.map((item, index) => (
-                    <div
-                      key={item.question_id || index}
-                      style={{
-                        padding: '10px 12px',
-                        borderRadius: 8,
-                        background: item.status === 'correct' ? '#ecfdf3' : '#fef3f2',
-                        color: item.status === 'correct' ? '#166534' : '#b42318',
-                        border: item.status === 'correct' ? '1px solid #abefc6' : '1px solid #fecdca'
-                      }}
-                    >
-                      {item.message}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+              {Array.isArray(result.feedback) && result.feedback.length > 0 ? (
+                <>
+                  <AssessmentSectionTitle>Question feedback</AssessmentSectionTitle>
+                  <div className={s.formGrid}>
+                    {result.feedback.map((item, index) => (
+                      <AssessmentAlert
+                        key={item.question_id || index}
+                        type={item.status === 'correct' ? 'success' : 'error'}
+                      >
+                        {item.message}
+                      </AssessmentAlert>
+                    ))}
+                  </div>
+                </>
+              ) : null}
 
-            {Array.isArray(result.correctAnswers) && result.correctAnswers.length > 0 && (
-              <div style={{ marginTop: 16 }}>
-                <strong style={{ color: '#111827' }}>Answer Review</strong>
-                <div style={{ display: 'grid', gap: 10, marginTop: 10 }}>
-                  {result.correctAnswers.map((item, index) => (
-                    <div key={item.question_id || index} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: 12 }}>
-                      <div style={{ fontWeight: 600, color: '#111827' }}>{item.question_text}</div>
-                      <div style={{ fontSize: '0.9rem', marginTop: 6, color: '#475467' }}>Your answer: <strong>{item.submitted_answer || 'No answer'}</strong></div>
-                      <div style={{ fontSize: '0.9rem', marginTop: 4, color: '#475467' }}>Correct answer: <strong>{item.correct_answer || 'Not provided'}</strong></div>
-                      <div style={{ marginTop: 6, fontSize: '0.85rem', color: item.is_correct ? '#166534' : '#b42318', fontWeight: 600 }}>
-                        {item.is_correct ? `Correct • +${item.marks_awarded}` : `Incorrect • 0/${item.marks_possible}`}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+              {Array.isArray(result.correctAnswers) && result.correctAnswers.length > 0 ? (
+                <>
+                  <AssessmentDivider />
+                  <AssessmentSectionTitle>Answer review</AssessmentSectionTitle>
+                  <div className={s.formGrid}>
+                    {result.correctAnswers.map((item, index) => (
+                      <AssessmentCard key={item.question_id || index} muted>
+                        <AssessmentMeta strong>{item.question_text}</AssessmentMeta>
+                        <AssessmentMeta>Your answer: {item.submitted_answer || 'No answer'}</AssessmentMeta>
+                        <AssessmentMeta>Correct answer: {item.correct_answer || 'Not provided'}</AssessmentMeta>
+                        <p className={s.metaStrong} style={{ color: item.is_correct ? '#047857' : '#b91c1c', margin: '0.35rem 0 0' }}>
+                          {item.is_correct ? `Correct · +${item.marks_awarded}` : `Incorrect · 0/${item.marks_possible}`}
+                        </p>
+                      </AssessmentCard>
+                    ))}
+                  </div>
+                </>
+              ) : null}
 
-            <button onClick={() => setActiveQuiz(null)} style={{ marginTop: 16, padding: '8px 20px', borderRadius: 6, border: 'none', background: '#4f8ef7', color: '#fff', cursor: 'pointer' }}>
-              Back to Quizzes
-            </button>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-            <button onClick={submitQuiz} disabled={submitting || !hasActiveQuestions} style={{ padding: '10px 24px', borderRadius: 6, border: 'none', background: '#28a745', color: '#fff', cursor: (submitting || !hasActiveQuestions) ? 'not-allowed' : 'pointer', opacity: (submitting || !hasActiveQuestions) ? 0.7 : 1 }}>
-              {submitting ? 'Submitting...' : 'Submit Quiz'}
-            </button>
-            <button onClick={() => setActiveQuiz(null)} style={{ padding: '10px 24px', borderRadius: 6, border: '1px solid #ddd', background: '#fff', cursor: 'pointer' }}>
-              Cancel
-            </button>
-          </div>
-        )}
-      </div>
-      </div>
-      </div>
+              <AssessmentToolbar>
+                <BtnPrimary type="button" onClick={() => setActiveQuiz(null)}>Back to quizzes</BtnPrimary>
+              </AssessmentToolbar>
+            </div>
+          ) : (
+            <AssessmentToolbar>
+              <BtnAccent
+                type="button"
+                onClick={submitQuiz}
+                disabled={submitting || !hasActiveQuestions || secondsLeft === 0}
+              >
+                {submitting ? 'Submitting…' : secondsLeft === 0 ? 'Time expired' : 'Submit quiz'}
+              </BtnAccent>
+              <BtnSecondary type="button" onClick={() => setActiveQuiz(null)}>Leave attempt</BtnSecondary>
+            </AssessmentToolbar>
+          )}
+        </div>
+      </AssessmentShell>
     );
   }
 
   return (
-    <div className="app-page">
-      <div className="app-container app-stack">
-      <section className="app-surface">
-        <div className="app-surface-body">
-          <p className="app-kicker">{isLecturer ? 'Quiz Authoring' : 'Quiz Attempts'}</p>
-          <h1 className="page-title" style={{ marginTop: '0.35rem' }}>{isLecturer ? 'Manage Quizzes' : 'Quizzes'}</h1>
-        </div>
-      </section>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <h2 style={{ fontSize: '1rem', color: '#667085', fontWeight: 500 }}>Assessments by course workflow</h2>
-        {isLecturer && !creating && (
-          <button onClick={() => setCreating(true)} style={{ background: '#4f8ef7', color: '#fff', padding: '8px 20px', borderRadius: 6, border: 'none', cursor: 'pointer' }}>
-            + New Quiz
-          </button>
-        )}
-      </div>
-      {loading && <p style={{ marginTop: 12, color: '#666' }}>Loading quizzes...</p>}
-      {error && <p style={{ marginTop: 12, color: '#c0392b' }}>{error}</p>}
+    <AssessmentShell wide={isLecturer}>
+      <AssessmentPageHeader
+        kicker={isLecturer ? 'Teaching · quizzes' : 'Learning · quizzes'}
+        title="Quizzes"
+        lead={
+          isLecturer
+            ? 'Configure timing, build the question bank, publish when validated, and review attempt activity for this course.'
+            : 'Start or resume timed attempts here. Availability, windows, and scores follow your instructor’s rules.'
+        }
+        toolbar={
+          isLecturer && !creating ? (
+            <BtnPrimary type="button" onClick={() => setCreating(true)}>New quiz</BtnPrimary>
+          ) : null
+        }
+      />
+
+      {loading ? <AssessmentMeta>Loading quizzes…</AssessmentMeta> : null}
+      {error ? <AssessmentAlert type="error">{error}</AssessmentAlert> : null}
 
       {isLecturer && creating && (
-        <form onSubmit={createQuiz} className="app-surface app-surface-body" style={{ maxWidth: 760 }}>
-          <h3 style={{ marginBottom: 16 }}>{draftQuizTarget ? `Manage Questions • ${draftQuizTarget.title}` : 'Create Quiz'}</h3>
+        <AssessmentCard>
+          <AssessmentSectionTitle>
+            {draftQuizTarget ? `Question bank · ${draftQuizTarget.title}` : 'Create quiz'}
+          </AssessmentSectionTitle>
 
-          {!draftQuizTarget && (
-            <>
-              <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Quiz title" required
-                style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid #ddd', marginBottom: 10 }} />
-              <input type="number" value={form.time_limit_minutes} onChange={(e) => setForm({ ...form, time_limit_minutes: e.target.value })}
-                placeholder="Time limit (minutes)" style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid #ddd', marginBottom: 16 }} />
-            </>
-          )}
+          <form onSubmit={createQuiz} className={s.formGrid}>
+            {!draftQuizTarget && (
+              <>
+                <Field label="Quiz title">
+                  <TextInput value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Quiz title" required />
+                </Field>
+                <div className={s.flexRow} style={{ alignItems: 'flex-end', gap: '1rem' }}>
+                  <Field label="Hours">
+                    <TextInput
+                      type="number"
+                      min={0}
+                      max={336}
+                      value={form.duration_hours}
+                      onChange={(e) => setForm({ ...form, duration_hours: e.target.value })}
+                      style={{ maxWidth: '6.5rem' }}
+                    />
+                  </Field>
+                  <Field label="Minutes">
+                    <TextInput
+                      type="number"
+                      min={0}
+                      max={59}
+                      value={form.duration_minutes}
+                      onChange={(e) => setForm({ ...form, duration_minutes: e.target.value })}
+                      style={{ maxWidth: '6.5rem' }}
+                    />
+                  </Field>
+                  <AssessmentMeta strong>Total: {totalDurationMinutesFromForm(form)} min</AssessmentMeta>
+                </div>
+              </>
+            )}
 
-          {draftQuizTarget && (
-            <p style={{ marginTop: 0, marginBottom: 14, color: '#667085' }}>
-              {draftQuizTarget.is_published
-                ? 'Update the questions below and save your changes.'
-                : 'This quiz is saved as a draft. Add at least one question before publishing it.'}
-            </p>
-          )}
+            {draftQuizTarget ? (
+              <AssessmentMeta>
+                {draftQuizTarget.is_published
+                  ? 'Update questions below, then save. Published quizzes should be changed carefully while attempts are open.'
+                  : 'Draft quiz — add at least one valid question, then save and publish when ready.'}
+              </AssessmentMeta>
+            ) : null}
 
-          {loadingQuestions ? (
-            <p style={{ color: '#666', marginBottom: 12 }}>Loading question editor...</p>
-          ) : questions.map((q, i) => (
-            <div key={q.id || i} style={{ border: '1px solid #eee', borderRadius: 8, padding: 12, marginBottom: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
-                <p style={{ fontWeight: 600, margin: 0 }}>Question {i + 1}</p>
-                <button
-                  type="button"
-                  onClick={() => deleteQuestion(i)}
-                  style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #f04438', background: '#fff', color: '#f04438', cursor: 'pointer' }}
-                >
-                  Delete
-                </button>
-              </div>
-              <input value={q.question_text} onChange={(e) => updateQuestion(i, 'question_text', e.target.value)} placeholder="Question text"
-                style={{ width: '100%', padding: '8px', borderRadius: 6, border: '1px solid #ddd', marginBottom: 8 }} />
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-                <select value={q.question_type} onChange={(e) => updateQuestion(i, 'question_type', e.target.value)}
-                  style={{ padding: '8px', borderRadius: 6, border: '1px solid #ddd' }}>
-                  <option value="mcq">Multiple Choice</option>
-                  <option value="true_false">True / False</option>
-                  <option value="short_answer">Short Answer</option>
-                </select>
-                <input
-                  type="number"
-                  min="1"
-                  value={q.marks}
-                  onChange={(e) => updateQuestion(i, 'marks', e.target.value)}
-                  placeholder="Marks"
-                  style={{ width: 110, padding: '8px', borderRadius: 6, border: '1px solid #ddd' }}
-                />
-              </div>
-              {q.question_type === 'mcq' && ensureFourOptions(q.options).map((opt, oi) => (
-                <input key={oi} value={opt} onChange={(e) => {
-                  const opts = ensureFourOptions(q.options);
-                  opts[oi] = e.target.value;
-                  updateQuestion(i, 'options', opts);
-                }} placeholder={`Option ${oi + 1}`}
-                  style={{ display: 'block', width: '100%', padding: '6px 8px', borderRadius: 6, border: '1px solid #ddd', marginBottom: 4 }} />
-              ))}
-              {q.question_type === 'true_false' && (
-                <p style={{ fontSize: '0.85rem', color: '#667085', margin: '6px 0' }}>
-                  Students will choose between True and False.
-                </p>
-              )}
-              <input value={q.correct_answer} onChange={(e) => updateQuestion(i, 'correct_answer', e.target.value)} placeholder={q.question_type === 'short_answer' ? 'Expected answer' : 'Correct answer'}
-                style={{ width: '100%', padding: '8px', borderRadius: 6, border: '1px solid #ddd', marginTop: 4 }} />
-            </div>
-          ))}
+            {loadingQuestions ? (
+              <AssessmentMeta>Loading question editor…</AssessmentMeta>
+            ) : (
+              questions.map((q, i) => (
+                <AssessmentCard key={q.id || i} muted>
+                  <CardTitleRow
+                    title={`Question ${i + 1}`}
+                    aside={
+                      <BtnDanger type="button" onClick={() => deleteQuestion(i)}>
+                        Remove
+                      </BtnDanger>
+                    }
+                  />
+                  <Field label="Prompt">
+                    <TextArea
+                      value={q.question_text}
+                      onChange={(e) => updateQuestion(i, 'question_text', e.target.value)}
+                      placeholder="Question text"
+                      rows={2}
+                    />
+                  </Field>
+                  <div className={s.flexRow}>
+                    <Field label="Type">
+                      <SelectInput value={q.question_type} onChange={(e) => updateQuestion(i, 'question_type', e.target.value)}>
+                        <option value="mcq">Multiple choice</option>
+                        <option value="true_false">True / false</option>
+                        <option value="short_answer">Short answer</option>
+                      </SelectInput>
+                    </Field>
+                    <Field label="Marks">
+                      <TextInput
+                        type="number"
+                        min={1}
+                        value={q.marks}
+                        onChange={(e) => updateQuestion(i, 'marks', e.target.value)}
+                        style={{ maxWidth: '6.5rem' }}
+                      />
+                    </Field>
+                  </div>
+                  {q.question_type === 'mcq' && ensureFourOptions(q.options).map((opt, oi) => (
+                    <Field key={oi} label={`Option ${oi + 1}`}>
+                      <TextInput
+                        value={opt}
+                        onChange={(e) => {
+                          const opts = ensureFourOptions(q.options);
+                          opts[oi] = e.target.value;
+                          updateQuestion(i, 'options', opts);
+                        }}
+                        placeholder={`Option ${oi + 1}`}
+                      />
+                    </Field>
+                  ))}
+                  {q.question_type === 'true_false' ? (
+                    <p className={s.inlineHint}>Students choose between True and False.</p>
+                  ) : null}
+                  <Field label={q.question_type === 'short_answer' ? 'Expected answer' : 'Correct answer'}>
+                    <TextInput
+                      value={q.correct_answer}
+                      onChange={(e) => updateQuestion(i, 'correct_answer', e.target.value)}
+                      placeholder={q.question_type === 'short_answer' ? 'Expected answer' : 'Correct answer'}
+                    />
+                  </Field>
+                </AssessmentCard>
+              ))
+            )}
 
-          <div style={{ display: 'flex', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
-            <button type="button" onClick={addQuestion} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid #4f8ef7', color: '#4f8ef7', background: '#fff', cursor: 'pointer' }}>
-              + Add Question
-            </button>
-            <button type="submit" disabled={loadingQuestions} style={{ padding: '8px 20px', borderRadius: 6, border: 'none', background: '#4f8ef7', color: '#fff', cursor: loadingQuestions ? 'not-allowed' : 'pointer', opacity: loadingQuestions ? 0.7 : 1 }}>
-              {draftQuizTarget ? 'Save Changes' : 'Save Quiz'}
-            </button>
-            <button type="button" onClick={() => { setCreating(false); setSearchParams({}); setQuestions([createEmptyQuestion()]); }} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid #ddd', background: '#fff', cursor: 'pointer' }}>
-              Cancel
-            </button>
-          </div>
-        </form>
+            <AssessmentToolbar>
+              <BtnSecondary type="button" onClick={addQuestion}>Add question</BtnSecondary>
+              <BtnPrimary type="submit" disabled={loadingQuestions}>
+                {draftQuizTarget ? 'Save changes' : 'Save quiz'}
+              </BtnPrimary>
+              <BtnSecondary
+                type="button"
+                onClick={() => {
+                  setCreating(false);
+                  setSearchParams({});
+                  setQuestions([createEmptyQuestion()]);
+                }}
+              >
+                Cancel
+              </BtnSecondary>
+            </AssessmentToolbar>
+          </form>
+        </AssessmentCard>
       )}
 
-      <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10, padding: 0 }}>
+      <AssessmentSectionTitle>Course quizzes</AssessmentSectionTitle>
+
+      <AssessmentList>
         {quizzes.map((quiz) => {
           const participants = participantsByQuiz[quiz.id] || [];
           const isParticipantsOpen = openParticipantsQuizId === quiz.id;
-          const studentState = getStudentQuizState(quiz, quizAvailabilityById[quiz.id]);
+          const studentState = getStudentQuizUiState(quiz, quizAvailabilityById[quiz.id]);
 
           return (
-            <li key={quiz.id} className="app-surface app-surface-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                <div>
-                  <strong>{quiz.title}</strong>
-                  <span style={{ marginLeft: 10, fontSize: '0.8rem', color: quiz.is_published ? '#28a745' : '#aaa' }}>
-                    {quiz.is_published ? 'Published' : 'Draft'}
-                  </span>
-                  {!isLecturer && (
-                    <div style={{ marginTop: 6, color: studentState.color, fontSize: '0.85rem', fontWeight: 600 }}>
-                      {studentState.label}
+            <li key={quiz.id}>
+              <AssessmentCard as="article">
+                <CardTitleRow
+                  title={quiz.title}
+                  aside={
+                    <div className={s.flexRow}>
+                      {isLecturer ? (
+                        <StatusBadge variant={quiz.is_published ? 'success' : 'warning'}>
+                          {quiz.is_published ? 'Published' : 'Draft'}
+                        </StatusBadge>
+                      ) : (
+                        <StatusBadge variant={studentState.badgeVariant}>{studentState.label}</StatusBadge>
+                      )}
                     </div>
-                  )}
-                </div>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  {isLecturer && !quiz.is_published && (
-                    <button onClick={() => publishQuiz(quiz.id)} style={{ padding: '6px 14px', borderRadius: 6, border: 'none', background: '#28a745', color: '#fff', cursor: 'pointer' }}>
-                      Publish
-                    </button>
-                  )}
-                  {isLecturer && (
-                    <>
-                      <button onClick={() => openQuestionManager(quiz.id)} style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #ddd', background: '#fff', cursor: 'pointer' }}>
-                        Manage Questions
-                      </button>
-                      <button onClick={() => toggleParticipants(quiz.id)} style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #ddd', background: '#fff', cursor: 'pointer' }}>
-                        {isParticipantsOpen ? 'Hide Participants' : 'View Participants'}
-                      </button>
-                    </>
-                  )}
-                  {!isLecturer && (
-                    <button onClick={() => openQuiz(quiz.id)} disabled={!studentState.canStart}
-                      style={{ padding: '6px 14px', borderRadius: 6, border: 'none', background: studentState.canStart ? '#4f8ef7' : '#d0d5dd', color: '#fff', cursor: studentState.canStart ? 'pointer' : 'not-allowed' }}>
-                      {studentState.buttonLabel}
-                    </button>
-                  )}
-                </div>
-              </div>
+                  }
+                />
 
-              {isLecturer && isParticipantsOpen && (
-                <div style={{ borderTop: '1px solid #f0f0f0', paddingTop: 12 }}>
-                  <strong style={{ display: 'block', marginBottom: 10 }}>Participants</strong>
-                  {participantsError && <p style={{ color: '#c0392b', marginBottom: 8 }}>{participantsError}</p>}
-                  {loadingParticipantsId === quiz.id ? (
-                    <p style={{ color: '#666' }}>Loading participants...</p>
-                  ) : participants.length === 0 ? (
-                    <p style={{ color: '#888' }}>No students have taken this quiz yet.</p>
-                  ) : (
-                    <div style={{ display: 'grid', gap: 8 }}>
-                      {participants.map((entry) => (
-                        <div key={entry.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', padding: '8px 10px', borderRadius: 6, background: '#f8fafc' }}>
-                          <div>
-                            <div style={{ fontWeight: 600 }}>{entry.student?.full_name || entry.student?.email || 'Unknown student'}</div>
-                            <div style={{ fontSize: '0.82rem', color: '#666' }}>{entry.student?.student_id || entry.student?.email || 'No identifier'}</div>
+                {isLecturer ? (
+                  <AssessmentToolbar>
+                    {!quiz.is_published ? (
+                      <BtnAccent type="button" onClick={() => publishQuiz(quiz.id)}>Publish</BtnAccent>
+                    ) : null}
+                    <BtnSecondary type="button" onClick={() => openQuestionManager(quiz.id)}>Manage questions</BtnSecondary>
+                    <BtnSecondary type="button" onClick={() => toggleParticipants(quiz.id)}>
+                      {isParticipantsOpen ? 'Hide attempts' : 'View attempts'}
+                    </BtnSecondary>
+                  </AssessmentToolbar>
+                ) : (
+                  <AssessmentToolbar>
+                    <BtnPrimary type="button" onClick={() => openQuiz(quiz.id)} disabled={!studentState.canStart}>
+                      {studentState.buttonLabel}
+                    </BtnPrimary>
+                  </AssessmentToolbar>
+                )}
+
+                {isLecturer && isParticipantsOpen ? (
+                  <div className={s.queue}>
+                    <p className={s.queueTitle}>Attempt monitoring</p>
+                    {participantsError ? <AssessmentAlert type="error">{participantsError}</AssessmentAlert> : null}
+                    {loadingParticipantsId === quiz.id ? (
+                      <AssessmentMeta>Loading participants…</AssessmentMeta>
+                    ) : participants.length === 0 ? (
+                      <AssessmentEmpty>No attempts recorded yet.</AssessmentEmpty>
+                    ) : (
+                      participants.map((entry) => (
+                        <QueueItem key={entry.id}>
+                          <div className={s.queueItemHeader}>
+                            <div>
+                              <AssessmentMeta strong>{entry.student?.full_name || entry.student?.email || 'Unknown student'}</AssessmentMeta>
+                              <AssessmentMeta>{entry.student?.student_id || entry.student?.email || 'No identifier'}</AssessmentMeta>
+                            </div>
+                            <StatusBadge variant="neutral">{entry.score ?? 'Pending'}</StatusBadge>
                           </div>
-                          <div style={{ fontWeight: 700, color: '#1f2937' }}>{entry.score ?? 'Pending'}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
+                        </QueueItem>
+                      ))
+                    )}
+                  </div>
+                ) : null}
+              </AssessmentCard>
             </li>
           );
         })}
-        {!loading && quizzes.length === 0 && <p style={{ color: '#888', marginTop: 16 }}>No quizzes available yet.</p>}
-      </ul>
-      </div>
-    </div>
+      </AssessmentList>
+
+      {!loading && quizzes.length === 0 ? (
+        <AssessmentEmpty>No quizzes in this course yet.</AssessmentEmpty>
+      ) : null}
+    </AssessmentShell>
   );
-}
-
-function resolveCourseAccessMessage(err, fallback) {
-  const status = err?.response?.status;
-  const backendMessage = err?.response?.data?.error;
-
-  if (backendMessage && backendMessage !== 'Forbidden: not enrolled in this course') {
-    return backendMessage;
-  }
-
-  if (status === 403) return 'Access denied: you are not enrolled in this course.';
-  if (status === 404) return 'This course does not exist or is no longer available.';
-  return backendMessage || fallback;
-}
-
-function getStudentQuizState(quiz, availability) {
-  const attempt = quiz?.myAttempt;
-
-  if (attempt?.submitted_at) {
-    return {
-      label: Number.isFinite(Number(attempt.score)) ? `Already attempted • Score ${Number(attempt.score)}` : 'Already attempted',
-      canStart: false,
-      color: '#16a34a',
-      buttonLabel: 'Attempt Used'
-    };
-  }
-
-  if (!quiz.is_published) {
-    return { label: 'This quiz is not available yet', canStart: false, color: '#98a2b3', buttonLabel: 'Unavailable' };
-  }
-
-  if (!availability) {
-    return { label: 'Checking availability...', canStart: false, color: '#98a2b3', buttonLabel: 'Checking...' };
-  }
-
-  if (availability.canStart === false) {
-    return {
-      label: availability.label || 'This quiz is not available yet',
-      canStart: false,
-      color: '#98a2b3',
-      buttonLabel: 'Unavailable'
-    };
-  }
-
-  const now = Date.now();
-  const startTime = quiz.start_time ? new Date(quiz.start_time).getTime() : null;
-  const endTime = quiz.end_time ? new Date(quiz.end_time).getTime() : null;
-
-  if (startTime && now < startTime) {
-    return {
-      label: `Starts ${new Date(startTime).toLocaleString()}`,
-      canStart: false,
-      color: '#b54708',
-      buttonLabel: 'Unavailable'
-    };
-  }
-
-  if (endTime && now >= endTime) {
-    return {
-      label: 'Quiz closed',
-      canStart: false,
-      color: '#667085',
-      buttonLabel: 'Unavailable'
-    };
-  }
-
-  if (attempt?.id) {
-    return {
-      label: 'Attempt in progress',
-      canStart: true,
-      color: '#2563eb',
-      buttonLabel: 'Resume Quiz'
-    };
-  }
-
-  return { label: 'Available now', canStart: true, color: '#16a085', buttonLabel: 'Start Quiz' };
 }

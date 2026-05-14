@@ -1,0 +1,44 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.head {
+  flex-shrink: 0;
+  margin-bottom: 0.35rem;
+}
+
+.title {
+  margin: 0 0 0.2rem;
+  font-size: var(--fs-0, 0.95rem);
+  font-weight: 600;
+  color: var(--color-text, #0f172a);
+}
+
+.sub {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: #94a3b8;
+}
+
+.body {
+  flex: 1;
+  min-height: 8rem;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: var(--radius-sm, 6px);
+  padding: 0.35rem 0.5rem;
+  background: var(--color-surface, #fff);
+}
+
+.empty {
+  margin: auto;
+  padding: 1rem;
+  font-size: 0.82rem;
+  color: #94a3b8;
+  text-align: center;
+}

@@ -5,6 +5,11 @@ const { attachUser, requireLecturer, authorizeCourseAccess } = require('../middl
 const { Room, Course, Enrollment, User } = require('../models');
 const { Op } = require('sequelize');
 const { sendToUser } = require('../services/notifications/sseService');
+const { isLiveKitConfigured } = require('../config/livekit');
+const { issueLiveKitParticipantToken } = require('../services/classroom/livekitTokenService');
+const attendanceService = require('../services/classroom/liveClassAttendanceService');
+const livekitModerationService = require('../services/classroom/livekitModerationService');
+const logger = require('../config/logger');
 
 const guard = [keycloak.protect(), attachUser];
 const lecturerPresenceByRoom = new Map();
@@ -81,6 +86,12 @@ const closeRoomRecord = async (room, { notifyStudents = false } = {}) => {
 
   await room.update({ is_active: false });
   lecturerPresenceByRoom.set(room.room_token, false);
+
+  try {
+    await attendanceService.finalizeSessionForRoom(room);
+  } catch (err) {
+    logger.warn('Live class attendance finalize failed', { roomId: room.id, err: err.message });
+  }
 
   if (!notifyStudents) {
     return room;
@@ -212,6 +223,24 @@ const getRoomForRole = async (roomToken, user, role, opts = {}) => {
   return { room };
 };
 
+/** Room read for post-close session summary (lecturer course ownership). */
+const getRoomForAttendanceRead = async (roomToken, user, role) => {
+  const room = await Room.findOne({
+    where: { room_token: String(roomToken || '').trim() },
+    include: [courseInclude]
+  });
+  if (!room || !room.Course) {
+    return { error: { status: 404, message: 'Room not found' } };
+  }
+  if (role === 'admin') {
+    return { room };
+  }
+  if (role === 'lecturer' && String(room.Course.lecturer_id) === String(user.id)) {
+    return { room };
+  }
+  return { error: { status: 403, message: 'Forbidden' } };
+};
+
 // Create a course-linked live class room (lecturers/admin only)
 router.post('/create', ...guard, requireLecturer,
   requireCourseId,
@@ -284,6 +313,33 @@ router.get('/course/:courseId', ...guard, authorizeCourseAccess(req => req.param
   }
 });
 
+// LiveKit token — registered before `/:roomId/*` routes so path `.../livekit-token` is never shadowed.
+router.post('/:roomToken/livekit-token', ...guard, async (req, res) => {
+  try {
+    if (!isLiveKitConfigured()) {
+      return res.status(503).json({ error: 'LiveKit is not configured on this server' });
+    }
+
+    const roomToken = String(req.params.roomToken || '').trim();
+    const role = resolveRole(req);
+    const result = await getRoomForRole(roomToken, req.user, role, { allowStudentLobby: false });
+    if (result.error) {
+      return res.status(result.error.status).json({ error: result.error.message });
+    }
+
+    const classroomRole = role === 'admin' ? 'admin' : (role === 'lecturer' ? 'lecturer' : 'student');
+    const payload = await issueLiveKitParticipantToken({
+      room: result.room,
+      user: req.user,
+      classroomRole
+    });
+    return res.json(payload);
+  } catch (err) {
+    const status = err.status || 500;
+    return res.status(status).json({ error: err.message });
+  }
+});
+
 // Lecturer heartbeat/presence for moderator-first join policy.
 router.post('/:roomId/presence', ...guard, requireLecturer, async (req, res) => {
   try {
@@ -346,6 +402,114 @@ router.get('/:roomId/access', ...guard, async (req, res) => {
   }
 });
 
+router.post('/:roomId/session/ping', ...guard, async (req, res) => {
+  try {
+    const role = resolveRole(req);
+    const result = await getRoomForRole(req.params.roomId, req.user, role, { allowStudentLobby: false });
+    if (result.error) {
+      return res.status(result.error.status).json({ error: result.error.message });
+    }
+    const metrics = req.body?.metrics && typeof req.body.metrics === 'object' ? req.body.metrics : {};
+    const out = await attendanceService.recordPing({
+      room: result.room,
+      user: req.user,
+      role,
+      metrics
+    });
+    return res.json({ ok: true, ...out });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/:roomId/session/leave', ...guard, async (req, res) => {
+  try {
+    const role = resolveRole(req);
+    const result = await getRoomForRole(req.params.roomId, req.user, role, { allowStudentLobby: true });
+    if (result.error) {
+      return res.status(result.error.status).json({ error: result.error.message });
+    }
+    await attendanceService.recordLeave({ room: result.room, user: req.user });
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/:roomId/session/summary', ...guard, requireLecturer, async (req, res) => {
+  try {
+    const role = resolveRole(req);
+    const result = await getRoomForAttendanceRead(req.params.roomId, req.user, role);
+    if (result.error) {
+      return res.status(result.error.status).json({ error: result.error.message });
+    }
+    const summary = await attendanceService.getOpenSessionSummaryForLecturer(result.room);
+    if (!summary) {
+      return res.status(404).json({ error: 'No attendance session found for this class' });
+    }
+    return res.json(summary);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/:roomId/session/live', ...guard, requireLecturer, async (req, res) => {
+  try {
+    const role = resolveRole(req);
+    const result = await getRoomForRole(req.params.roomId, req.user, role, { allowStudentLobby: true });
+    if (result.error) {
+      return res.status(result.error.status).json({ error: result.error.message });
+    }
+    const metrics = await attendanceService.getLiveMetrics(result.room);
+    return res.json(metrics);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/:roomId/livekit-moderate', ...guard, requireLecturer, async (req, res) => {
+  try {
+    if (!isLiveKitConfigured()) {
+      return res.status(503).json({ error: 'LiveKit is not configured on this server' });
+    }
+    const role = resolveRole(req);
+    const result = await getRoomForRole(req.params.roomId, req.user, role, { allowStudentLobby: false });
+    if (result.error) {
+      return res.status(result.error.status).json({ error: result.error.message });
+    }
+
+    const action = String(req.body?.action || '').trim();
+    const participantIdentity = req.body?.participantIdentity != null
+      ? String(req.body.participantIdentity).trim()
+      : '';
+
+    const allowed = ['mute_microphone', 'camera_off', 'stop_screen_share', 'remove_participant', 'reclaim_presentations'];
+    if (!allowed.includes(action)) {
+      return res.status(400).json({ error: 'Invalid moderation action' });
+    }
+
+    if (action !== 'reclaim_presentations' && !participantIdentity) {
+      return res.status(400).json({ error: 'participantIdentity is required' });
+    }
+
+    if (action === 'remove_participant' && participantIdentity === req.user.id) {
+      return res.status(400).json({ error: 'Use Leave class to exit the session' });
+    }
+
+    const roomName = String(req.params.roomId || '').trim();
+    const out = await livekitModerationService.moderateParticipant({
+      roomName,
+      targetIdentity: participantIdentity,
+      action,
+      lecturerIdentity: req.user.id
+    });
+    return res.json(out);
+  } catch (err) {
+    const status = err.status || 500;
+    return res.status(status).json({ error: err.message });
+  }
+});
+
 const closeRoomByToken = async (roomToken) => {
   const token = String(roomToken || '').trim();
   const room = await Room.findOne({
@@ -383,5 +547,7 @@ router.patch('/:roomToken/close', ...guard, requireLecturer,
     res.status(status).json({ error: err.message });
   }
 });
+
+logger.info('[SBLE DEBUG] rooms router module loaded', { file: require('path').resolve(__filename) });
 
 module.exports = router;

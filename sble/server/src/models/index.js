@@ -10,6 +10,8 @@ const QuizQuestion = require('./QuizQuestion');
 const QuizAttempt = require('./QuizAttempt');
 const Exam = require('./Exam');
 const Room = require('./Room');
+const LiveClassSession = require('./LiveClassSession');
+const LiveClassAttendance = require('./LiveClassAttendance');
 const Discussion = require('./Discussion');
 const AuditLog = require('./AuditLog');
 
@@ -23,6 +25,11 @@ Course.hasMany(Exam, { foreignKey: 'course_id' });
 Exam.belongsTo(Course, { foreignKey: 'course_id' });
 Course.hasMany(Room, { foreignKey: 'course_id' });
 Room.belongsTo(Course, { foreignKey: 'course_id' });
+Room.hasMany(LiveClassSession, { foreignKey: 'room_id' });
+LiveClassSession.belongsTo(Room, { foreignKey: 'room_id' });
+LiveClassSession.hasMany(LiveClassAttendance, { foreignKey: 'session_id' });
+LiveClassAttendance.belongsTo(LiveClassSession, { foreignKey: 'session_id' });
+LiveClassAttendance.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 Course.hasMany(Discussion, { foreignKey: 'course_id' });
 Discussion.belongsTo(Course, { foreignKey: 'course_id' });
 
@@ -46,5 +53,5 @@ module.exports = {
   sequelize,
   User, Course, Enrollment, Material,
   Assignment, Submission, Quiz, QuizQuestion,
-  QuizAttempt, Exam, Room, Discussion, AuditLog
+  QuizAttempt, Exam, Room, LiveClassSession, LiveClassAttendance, Discussion, AuditLog
 };

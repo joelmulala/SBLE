@@ -8,21 +8,22 @@ const { encryptFile, decryptFileToStream } = require('../services/encryption/fil
 const { Assignment, Submission, User, Course, Enrollment } = require('../models');
 const { sendGradeNotification } = require('../services/email/emailService');
 const { sendToUser } = require('../services/notifications/sseService');
+const { maskSubmissionForStudentView, submissionLocksStudentEdits } = require('../services/assessment/assignmentGradingView');
 
 const guard = [keycloak.protect(), attachUser];
 
 const isDeadlinePassed = (assignment) => assignment?.due_date && new Date(assignment.due_date).getTime() <= Date.now();
 
-const hasGradedSubmission = async (assignmentId, studentId) => {
-  const gradedSubmission = await Submission.findOne({
+const hasLockedSubmission = async (assignmentId, studentId) => {
+  const submission = await Submission.findOne({
     where: {
       assignment_id: assignmentId,
-      student_id: studentId,
-      grade: { [Op.not]: null }
-    }
+      student_id: studentId
+    },
+    order: [['last_updated_time', 'DESC'], ['submitted_at', 'DESC']]
   });
 
-  return Boolean(gradedSubmission);
+  return submissionLocksStudentEdits(submission);
 };
 
 const getLatestSubmission = async (assignmentId, studentId) => Submission.findOne({
@@ -191,7 +192,7 @@ router.get('/course/:courseId', ...guard, authorizeCourseAccess(req => req.param
 
     res.json(assignments.map((assignment) => ({
       ...assignment.toJSON(),
-      mySubmission: latestByAssignment.get(assignment.id) || null
+      mySubmission: maskSubmissionForStudentView(latestByAssignment.get(assignment.id) || null)
     })));
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
@@ -221,8 +222,8 @@ router.post('/:id/submit', ...guard, requireStudent,
         return res.status(403).json({ error: 'Submission deadline has passed' });
       }
 
-      if (await hasGradedSubmission(req.params.id, req.user.id)) {
-        return res.status(403).json({ error: 'Submission has already been graded and can no longer be modified' });
+      if (await hasLockedSubmission(req.params.id, req.user.id)) {
+        return res.status(403).json({ error: 'This submission has been graded and can no longer be modified' });
       }
 
       if (!req.file) {
@@ -293,12 +294,8 @@ router.delete('/submissions/:id', ...guard, requireStudent,
       return res.status(403).json({ error: 'Forbidden: you can only delete your own submission' });
     }
 
-    if (
-      submission.grade !== null
-      && submission.grade !== undefined
-      || await hasGradedSubmission(submission.assignment_id, req.user.id)
-    ) {
-      return res.status(403).json({ error: 'Submission has already been graded and can no longer be modified' });
+    if (submissionLocksStudentEdits(submission)) {
+      return res.status(403).json({ error: 'This submission has been graded and can no longer be modified' });
     }
 
     if (isDeadlinePassed(submission.Assignment)) {
@@ -394,20 +391,36 @@ router.patch('/submissions/:id/grade', ...guard, requireLecturer,
   }, { managerOnly: true, managerMessage: 'Forbidden: only the assigned lecturer or admin can grade this assignment' }),
   async (req, res) => {
   try {
-    const { grade, feedback } = req.body;
+    const { grade, feedback, publish } = req.body;
     const submission = req.submission;
 
-    if (!isDeadlinePassed(submission.Assignment)) {
-      return res.status(403).json({ error: 'Submissions cannot be viewed or graded until the deadline has passed' });
+    const gradeNum = grade === '' || grade === undefined || grade === null ? null : Number(grade);
+    if (publish && (gradeNum === null || Number.isNaN(gradeNum))) {
+      return res.status(400).json({ error: 'Enter a numeric grade before publishing results to students.' });
     }
 
-    await submission.update({ grade, feedback, last_updated_time: new Date() });
+    let nextStatus = submission.grading_status || 'pending';
+    if (publish) nextStatus = 'published';
+    else if (gradeNum != null && !Number.isNaN(gradeNum)) nextStatus = 'graded';
 
-    // Notify student via email and SSE
-    if (submission.student) {
-      sendGradeNotification(submission.student.email, submission.Assignment.title, grade, feedback);
+    await submission.update({
+      grade: gradeNum != null && !Number.isNaN(gradeNum) ? gradeNum : submission.grade,
+      feedback: feedback !== undefined ? feedback : submission.feedback,
+      grading_status: nextStatus,
+      results_published_at: publish ? new Date() : submission.results_published_at,
+      last_updated_time: new Date()
+    });
+
+    // Notify student via email and SSE when results are published
+    if (publish && submission.student) {
+      sendGradeNotification(
+        submission.student.email,
+        submission.Assignment.title,
+        gradeNum,
+        feedback !== undefined ? feedback : submission.feedback
+      );
       sendToUser(submission.student.id, 'grade', {
-        message: `Your submission for "${submission.Assignment.title}" was graded: ${grade}`
+        message: `Your results for "${submission.Assignment.title}" are now available (grade: ${gradeNum}).`
       });
     }
 

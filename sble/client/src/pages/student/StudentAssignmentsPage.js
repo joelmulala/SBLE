@@ -1,6 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import api from '../../config/api';
+import { resolveCourseAccessMessage } from '../../assessment';
+import {
+  AssessmentShell,
+  AssessmentPageHeader,
+  AssessmentCard,
+  AssessmentMeta,
+  AssessmentAlert,
+  AssessmentEmpty,
+  LinkPrimary
+} from '../../components/assessment/AssessmentPrimitives';
+import s from '../../components/assessment/AssessmentPrimitives.module.css';
 
 export default function StudentAssignmentsPage() {
   const [courses, setCourses] = useState([]);
@@ -23,7 +33,7 @@ export default function StudentAssignmentsPage() {
       } catch (err) {
         setCourses([]);
         setAssignments([]);
-        setError(err?.response?.data?.error || 'Failed to load assignments.');
+        setError(resolveCourseAccessMessage(err, 'Failed to load assignments.'));
       } finally {
         setLoading(false);
       }
@@ -42,63 +52,44 @@ export default function StudentAssignmentsPage() {
       .filter((entry) => entry.items.length > 0);
   }, [courses, assignments]);
 
-  if (loading) return <p>Loading assignments...</p>;
-
   return (
-    <div>
-      <h2>Assignments</h2>
-      <p style={{ color: '#666', marginTop: 6 }}>Assignments from all your enrolled courses.</p>
-      {error && <p style={{ color: '#c0392b', marginTop: 12 }}>{error}</p>}
+    <AssessmentShell wide>
+      <AssessmentPageHeader
+        kicker="Learning · assignments"
+        title="Your assignments"
+        lead="This hub lists briefs across enrolled courses. Open a course to upload files, track due dates, and read instructor feedback."
+      />
 
-      <div style={{ display: 'grid', gap: 14, marginTop: 18 }}>
+      {error ? <AssessmentAlert type="error">{error}</AssessmentAlert> : null}
+      {loading ? <AssessmentMeta>Loading assignments…</AssessmentMeta> : null}
+
+      <div className={s.formGrid}>
         {groupedAssignments.map(({ course, items }) => (
-          <section key={course.id} style={sectionStyle}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <h3 style={{ margin: 0 }}>{course.title}</h3>
-              <Link to={`/student/courses/${course.id}/assignments`} style={linkButtonStyle}>Open Course Assignments</Link>
+          <AssessmentCard key={course.id} as="section">
+            <div className={s.cardTitleRow}>
+              <h3 className={s.cardTitle}>{course.title}</h3>
+              <LinkPrimary to={`/student/courses/${course.id}/assignments`}>Go to course</LinkPrimary>
             </div>
-
-            <ul style={{ listStyle: 'none', padding: 0, marginTop: 12, display: 'grid', gap: 10 }}>
+            <ul style={{ listStyle: 'none', margin: '0.75rem 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
               {items.map((assignment) => (
-                <li key={assignment.id} style={itemStyle}>
-                  <strong>{assignment.title}</strong>
-                  {assignment.description && <div style={{ color: '#666', fontSize: '0.9rem', marginTop: 4 }}>{assignment.description}</div>}
-                  {assignment.due_date && <div style={{ color: '#b54708', fontSize: '0.85rem', marginTop: 6 }}>Due: {new Date(assignment.due_date).toLocaleString()}</div>}
+                <li key={assignment.id} className={s.cardMuted} style={{ borderRadius: 10, padding: '0.65rem 0.75rem', border: '1px solid #e2e8f0' }}>
+                  <p className={s.metaStrong} style={{ margin: 0 }}>{assignment.title}</p>
+                  {assignment.description ? <p className={s.meta} style={{ margin: '0.35rem 0 0' }}>{assignment.description}</p> : null}
+                  {assignment.due_date ? (
+                    <p className={s.metaStrong} style={{ margin: '0.35rem 0 0', color: '#b45309' }}>
+                      Due {new Date(assignment.due_date).toLocaleString()}
+                    </p>
+                  ) : null}
                 </li>
               ))}
             </ul>
-          </section>
+          </AssessmentCard>
         ))}
 
-        {!error && groupedAssignments.length === 0 && (
-          <p style={{ color: '#888' }}>No assignments found in your enrolled courses.</p>
-        )}
+        {!loading && !error && groupedAssignments.length === 0 ? (
+          <AssessmentEmpty>No assignments in your enrolled courses.</AssessmentEmpty>
+        ) : null}
       </div>
-    </div>
+    </AssessmentShell>
   );
 }
-
-const sectionStyle = {
-  background: '#fff',
-  borderRadius: 8,
-  padding: 16,
-  boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
-  border: '1px solid #eef2f7'
-};
-
-const itemStyle = {
-  padding: '10px 12px',
-  borderRadius: 8,
-  background: '#f8fafc',
-  border: '1px solid #eef2f7'
-};
-
-const linkButtonStyle = {
-  display: 'inline-flex',
-  textDecoration: 'none',
-  background: '#4f8ef7',
-  color: '#fff',
-  borderRadius: 8,
-  padding: '8px 12px',
-  fontWeight: 600
-};

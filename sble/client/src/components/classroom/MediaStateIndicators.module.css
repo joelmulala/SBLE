@@ -1,0 +1,65 @@
+.wrap,
+.wrapComfortable {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  flex-shrink: 0;
+}
+
+.wrapComfortable {
+  gap: 0.35rem;
+}
+
+.dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 0.2rem;
+  border-radius: 3px;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border: 1px solid var(--color-border, rgba(148, 163, 184, 0.35));
+  color: var(--color-text-muted, #64748b);
+  background: var(--color-surface, #fff);
+}
+
+.dotOn {
+  color: #0f766e;
+  border-color: rgba(15, 118, 110, 0.35);
+  background: rgba(15, 118, 110, 0.08);
+}
+
+.dotOff {
+  color: #94a3b8;
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.dotScreen {
+  color: #1d4ed8;
+  border-color: rgba(29, 78, 216, 0.35);
+  background: rgba(29, 78, 216, 0.08);
+}
+
+.dotSpeak {
+  min-width: 0.85rem;
+  font-size: 0.85rem;
+  line-height: 1;
+  color: #0f766e;
+  border-color: rgba(15, 118, 110, 0.45);
+  background: rgba(15, 118, 110, 0.1);
+}
+
+.dotHand {
+  color: #b45309;
+  border-color: rgba(180, 83, 9, 0.35);
+  background: #fffbeb;
+}
+
+.dotQuestion {
+  color: #1e40af;
+  border-color: rgba(29, 78, 216, 0.35);
+  background: #eff6ff;
+}

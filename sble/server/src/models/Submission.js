@@ -10,6 +10,8 @@ const Submission = sequelize.define('Submission', {
   submission_type: { type: DataTypes.ENUM('typed', 'scanned', 'handwritten'), defaultValue: 'typed' },
   grade: { type: DataTypes.DECIMAL(5, 2) },
   feedback: { type: DataTypes.TEXT },
+  results_published_at: { type: DataTypes.DATE, allowNull: true },
+  grading_status: { type: DataTypes.STRING(24), allowNull: false, defaultValue: 'pending' },
   last_updated_time: { type: DataTypes.DATE, allowNull: true }
 }, { tableName: 'submissions', timestamps: true, createdAt: 'submitted_at', updatedAt: 'last_updated_time' });
 

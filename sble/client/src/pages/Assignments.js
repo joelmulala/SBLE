@@ -1,14 +1,41 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { useKeycloak } from '../auth/AuthProvider';
 import api from '../config/api';
 import { buildFileUploadFormData, triggerBlobDownload } from '../utils/fileTransfer';
+import {
+  resolveCourseAccessMessage,
+  feedbackAlertType,
+  getAssignmentStudentUiState,
+  useAssessmentRoles
+} from '../assessment';
+import {
+  AssessmentShell,
+  AssessmentPageHeader,
+  AssessmentCard,
+  AssessmentSectionTitle,
+  AssessmentMeta,
+  AssessmentAlert,
+  AssessmentEmpty,
+  AssessmentList,
+  AssessmentToolbar,
+  BtnPrimary,
+  BtnSecondary,
+  BtnDanger,
+  Field,
+  TextInput,
+  TextArea,
+  QueueItem,
+  GradingForm,
+  StatusBadge,
+  CardTitleRow,
+  StatsRow,
+  Stat
+} from '../components/assessment/AssessmentPrimitives';
+import s from '../components/assessment/AssessmentPrimitives.module.css';
 
 export default function Assignments() {
   const { courseId } = useParams();
-  const { keycloak } = useKeycloak();
-  const isLecturer = keycloak.hasRealmRole('lecturer') || keycloak.hasRealmRole('admin');
-  const isStudent = keycloak.hasRealmRole('student');
+  const { isLecturer, isStudent } = useAssessmentRoles();
 
   const [assignments, setAssignments] = useState([]);
   const [form, setForm] = useState({ title: '', description: '', due_date: '' });
@@ -22,6 +49,11 @@ export default function Assignments() {
   const [loadingSubmissionsId, setLoadingSubmissionsId] = useState(null);
   const [downloadingSubmissionId, setDownloadingSubmissionId] = useState(null);
   const [downloadingAssignmentId, setDownloadingAssignmentId] = useState(null);
+  const [gradingSubmission, setGradingSubmission] = useState(null);
+  const [gradeField, setGradeField] = useState('');
+  const [feedbackField, setFeedbackField] = useState('');
+  const [publishField, setPublishField] = useState(false);
+  const [gradingSaving, setGradingSaving] = useState(false);
   const [creatingAssignment, setCreatingAssignment] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -194,6 +226,37 @@ export default function Assignments() {
     }
   };
 
+  const openGrading = (entry) => {
+    setGradingSubmission(entry);
+    setGradeField(entry.grade != null && entry.grade !== '' ? String(entry.grade) : '');
+    setFeedbackField(entry.feedback || '');
+    setPublishField(entry.grading_status === 'published');
+  };
+
+  const saveGrading = async () => {
+    if (!gradingSubmission?.id || !openSubmissionsAssignmentId) return;
+    setGradingSaving(true);
+    setSubmissionsError('');
+    try {
+      await api.patch(`/assignments/submissions/${gradingSubmission.id}/grade`, {
+        grade: gradeField,
+        feedback: feedbackField,
+        publish: publishField
+      });
+      const res = await api.get(`/assignments/${openSubmissionsAssignmentId}/submissions`);
+      setSubmissionsByAssignment((prev) => ({
+        ...prev,
+        [openSubmissionsAssignmentId]: Array.isArray(res.data) ? res.data : []
+      }));
+      setGradingSubmission(null);
+      setMessage('Grading saved.');
+    } catch (err) {
+      setSubmissionsError(err?.response?.data?.error || 'Failed to save grade.');
+    } finally {
+      setGradingSaving(false);
+    }
+  };
+
   const downloadAssignmentFile = async (assignmentId, fileName) => {
     setDownloadingAssignmentId(assignmentId);
     setMessage('');
@@ -209,255 +272,240 @@ export default function Assignments() {
     }
   };
 
+  const messageAlertType = message ? feedbackAlertType(message) : null;
+
   return (
-    <div className="app-page">
-      <div className="app-container app-stack">
-      <section className="app-surface">
-        <div className="app-surface-body">
-          <p className="app-kicker">{isLecturer ? 'Assessment Management' : 'Assessment Submission'}</p>
-          <h1 className="page-title" style={{ marginTop: '0.35rem' }}>Assignments</h1>
-        </div>
-      </section>
-      {loading && <p className="app-meta">Loading assignments...</p>}
-      {error && <p style={{ color: '#c0392b' }}>{error}</p>}
-      {message && <p style={{ color: message.toLowerCase().includes('failed') || message.toLowerCase().includes('passed') ? '#c0392b' : '#2c3e50' }}>{message}</p>}
+    <AssessmentShell wide={isLecturer}>
+      <AssessmentPageHeader
+        kicker={isLecturer ? 'Teaching · assessment' : 'Learning · assessment'}
+        title="Assignments"
+        lead={
+          isLecturer
+            ? 'Review briefs, due dates, and the submission queue. Grading tools open only from each assignment’s submission list.'
+            : 'Read the brief, track your submission status, and upload work before the due date. Feedback appears here once released.'
+        }
+      />
+
+      {loading && <AssessmentMeta>Loading assignments…</AssessmentMeta>}
+      {error ? <AssessmentAlert type="error">{error}</AssessmentAlert> : null}
+      {message && messageAlertType ? (
+        <AssessmentAlert type={messageAlertType}>{message}</AssessmentAlert>
+      ) : null}
 
       {isLecturer && (
-        <form onSubmit={createAssignment} className="app-surface app-surface-body" style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 640 }}>
-          <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Title" required
-            style={inputStyle} />
-          <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Description"
-            style={{ ...inputStyle, resize: 'vertical' }} />
-          <input type="datetime-local" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })}
-            style={inputStyle} />
-          <div style={{ display: 'grid', gap: 6 }}>
-            <input
-              type="file"
-              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-              onChange={(e) => setAssignmentFile(e.target.files?.[0] || null)}
-            />
-            <span style={{ color: '#667085', fontSize: '0.84rem' }}>
-              Optional: attach the assignment file for students to download.
-            </span>
-          </div>
-          <button type="submit" style={primaryButtonStyle} disabled={creatingAssignment}>
-            {creatingAssignment ? 'Creating...' : assignmentFile ? 'Create & Upload Assignment' : 'Create Assignment'}
-          </button>
-        </form>
+        <AssessmentCard>
+          <AssessmentSectionTitle>Create assignment</AssessmentSectionTitle>
+          <form onSubmit={createAssignment} className={s.formGrid}>
+            <Field label="Title">
+              <TextInput value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Assignment title" required />
+            </Field>
+            <Field label="Instructions / description">
+              <TextArea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="What students should submit and how it will be evaluated" rows={4} />
+            </Field>
+            <Field label="Due date">
+              <TextInput type="datetime-local" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} />
+            </Field>
+            <div>
+              <input
+                type="file"
+                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                onChange={(e) => setAssignmentFile(e.target.files?.[0] || null)}
+              />
+              <p className={s.inlineHint}>Optional: attach a file students can download (brief, rubric, or template).</p>
+            </div>
+            <div>
+              <BtnPrimary type="submit" disabled={creatingAssignment}>
+                {creatingAssignment ? 'Creating…' : assignmentFile ? 'Create & upload' : 'Create assignment'}
+              </BtnPrimary>
+            </div>
+          </form>
+        </AssessmentCard>
       )}
 
-      <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 12, padding: 0 }}>
+      <AssessmentSectionTitle>Your assignments</AssessmentSectionTitle>
+
+      <AssessmentList>
         {assignments.map((assignment) => {
           const submission = assignment.mySubmission || null;
-          const status = getAssignmentStatus(assignment);
+          const status = getAssignmentStudentUiState(assignment);
+          const submissionCount = isLecturer && openSubmissionsAssignmentId === assignment.id
+            ? (submissionsByAssignment[assignment.id] || []).length
+            : null;
 
           return (
-            <li key={assignment.id} className="app-surface app-surface-body">
-              <h3 style={{ marginTop: 0 }}>{assignment.title}</h3>
-              <p style={{ color: '#666', marginTop: 4 }}>{assignment.description}</p>
-              {assignment.due_date && <p style={{ color: '#98a2b3', fontSize: '0.85rem', marginTop: 4 }}>Due: {new Date(assignment.due_date).toLocaleString()}</p>}
-              {assignment.file_name && (
-                <div style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <span style={{ color: '#475467', fontSize: '0.88rem' }}>Attached file: {assignment.file_name}</span>
-                  <button
-                    type="button"
-                    onClick={() => downloadAssignmentFile(assignment.id, assignment.file_name)}
-                    disabled={downloadingAssignmentId === assignment.id}
-                    style={primaryButtonStyle}
-                  >
-                    {downloadingAssignmentId === assignment.id ? 'Downloading...' : 'Download Assignment'}
-                  </button>
-                </div>
-              )}
+            <li key={assignment.id}>
+              <AssessmentCard as="article">
+                <CardTitleRow
+                  title={assignment.title}
+                  aside={
+                    isLecturer && assignment.due_date ? (
+                      <StatusBadge variant="neutral">Due {new Date(assignment.due_date).toLocaleString()}</StatusBadge>
+                    ) : null
+                  }
+                />
+                {assignment.description ? <AssessmentMeta>{assignment.description}</AssessmentMeta> : null}
+                {!isLecturer && assignment.due_date ? (
+                  <AssessmentMeta strong>Due {new Date(assignment.due_date).toLocaleString()}</AssessmentMeta>
+                ) : null}
 
-              {isLecturer && (
-                <div style={{ marginTop: 12 }}>
-                  <button
-                    type="button"
-                    onClick={() => toggleSubmissions(assignment.id)}
-                    style={secondaryButtonStyle}
-                  >
-                    {openSubmissionsAssignmentId === assignment.id ? 'Hide Submissions' : 'View Submissions'}
-                  </button>
+                {isLecturer && openSubmissionsAssignmentId === assignment.id && submissionCount != null ? (
+                  <StatsRow>
+                    <Stat label="Submissions in view" value={String(submissionCount)} />
+                  </StatsRow>
+                ) : null}
 
-                  {openSubmissionsAssignmentId === assignment.id && (
-                    <div style={{ marginTop: 12, borderTop: '1px solid #eef2f7', paddingTop: 12, display: 'grid', gap: 10 }}>
-                      {submissionsError && <p style={{ color: '#c0392b', margin: 0 }}>{submissionsError}</p>}
-                      {loadingSubmissionsId === assignment.id ? (
-                        <p style={{ color: '#666', margin: 0 }}>Loading submissions...</p>
-                      ) : (submissionsByAssignment[assignment.id] || []).length === 0 ? (
-                        <p style={{ color: '#888', margin: 0 }}>No submissions yet</p>
-                      ) : (
-                        (submissionsByAssignment[assignment.id] || []).map((entry) => (
-                          <div key={entry.id} style={{ background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 8, padding: 12, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                            <div>
-                              <div style={{ fontWeight: 600 }}>{entry.student?.full_name || entry.student?.email || 'Unknown student'}</div>
-                              <div style={{ color: '#667085', fontSize: '0.84rem', marginTop: 4 }}>
-                                {entry.file_name || 'Submission file'}
-                                {entry.submitted_at ? ` • Submitted ${new Date(entry.submitted_at).toLocaleString()}` : ''}
-                              </div>
-                              {entry.grade !== null && entry.grade !== undefined && (
-                                <div style={{ color: '#16a34a', fontSize: '0.84rem', marginTop: 4 }}>Grade: {entry.grade}</div>
-                              )}
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => downloadSubmission(entry.id, entry.file_name)}
-                              disabled={downloadingSubmissionId === entry.id}
-                              style={primaryButtonStyle}
-                            >
-                              {downloadingSubmissionId === entry.id ? 'Downloading...' : 'Download'}
-                            </button>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {!isLecturer && (
-                <>
-                  <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <span style={{ ...statusBadgeStyle, color: status.color, borderColor: status.borderColor }}>{status.label}</span>
-                  </div>
-
-                  {submission?.submitted_at && (
-                    <div style={{ marginTop: 10, display: 'grid', gap: 4 }}>
-                      <span style={{ color: '#667085', fontSize: '0.84rem' }}>
-                        Submitted at {new Date(submission.submitted_at).toLocaleString()}
-                      </span>
-                      {submission.grade === null || submission.grade === undefined ? (
-                        <span style={{ color: '#2563eb', fontSize: '0.84rem', fontWeight: 600 }}>Waiting for grading</span>
-                      ) : (
-                        <span style={{ color: '#16a34a', fontSize: '0.84rem', fontWeight: 600 }}>Graded: {submission.grade}</span>
-                      )}
-                    </div>
-                  )}
-
-                  <div style={{ marginTop: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <input
-                      type="file"
-                      accept=".pdf,.jpg,.png,.doc,.docx"
-                      onChange={(e) => setSubmitFile({ ...submitFile, [assignment.id]: e.target.files?.[0] || null })}
-                      disabled={!status.canUpload}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => submitAssignment(assignment.id)}
-                      disabled={!status.canUpload || submittingId === assignment.id}
-                      style={primaryButtonStyle}
-                    >
-                      {submittingId === assignment.id ? 'Uploading...' : status.uploadLabel}
-                    </button>
-                    {status.canDelete && submission?.id && (
-                      <button
+                {assignment.file_name ? (
+                  <>
+                    <AssessmentDivider />
+                    <div className={s.flexRow}>
+                      <AssessmentMeta strong>Materials: {assignment.file_name}</AssessmentMeta>
+                      <BtnPrimary
                         type="button"
-                        onClick={() => deleteSubmission(assignment.id)}
-                        disabled={deletingId === assignment.id}
-                        style={secondaryButtonStyle}
+                        onClick={() => downloadAssignmentFile(assignment.id, assignment.file_name)}
+                        disabled={downloadingAssignmentId === assignment.id}
                       >
-                        {deletingId === assignment.id ? 'Deleting...' : 'Delete Submission'}
-                      </button>
+                        {downloadingAssignmentId === assignment.id ? 'Downloading…' : 'Download brief'}
+                      </BtnPrimary>
+                    </div>
+                  </>
+                ) : null}
+
+                {isLecturer && (
+                  <>
+                    <AssessmentDivider />
+                    <AssessmentToolbar>
+                      <BtnSecondary type="button" onClick={() => toggleSubmissions(assignment.id)}>
+                        {openSubmissionsAssignmentId === assignment.id ? 'Hide submissions' : 'Open grading queue'}
+                      </BtnSecondary>
+                    </AssessmentToolbar>
+
+                    {openSubmissionsAssignmentId === assignment.id && (
+                      <div className={s.queue}>
+                        <p className={s.queueTitle}>Grading queue</p>
+                        {submissionsError ? <AssessmentAlert type="error">{submissionsError}</AssessmentAlert> : null}
+                        {loadingSubmissionsId === assignment.id ? (
+                          <AssessmentMeta>Loading submissions…</AssessmentMeta>
+                        ) : (submissionsByAssignment[assignment.id] || []).length === 0 ? (
+                          <AssessmentEmpty>No submissions yet for this assignment.</AssessmentEmpty>
+                        ) : (
+                          (submissionsByAssignment[assignment.id] || []).map((entry) => (
+                            <QueueItem key={entry.id}>
+                              <div className={s.queueItemHeader}>
+                                <div>
+                                  <AssessmentMeta strong>{entry.student?.full_name || entry.student?.email || 'Unknown student'}</AssessmentMeta>
+                                  <AssessmentMeta>
+                                    {entry.file_name || 'Submission file'}
+                                    {entry.submitted_at ? ` · Submitted ${new Date(entry.submitted_at).toLocaleString()}` : ''}
+                                  </AssessmentMeta>
+                                  <AssessmentMeta>
+                                    {entry.grading_status === 'published'
+                                      ? 'Status: released to student'
+                                      : entry.grading_status === 'graded'
+                                        ? 'Status: graded (draft — not released)'
+                                        : 'Status: submitted'}
+                                    {entry.grade != null ? ` · Grade: ${entry.grade}` : ''}
+                                  </AssessmentMeta>
+                                </div>
+                                <div className={s.actionRow}>
+                                  <BtnPrimary
+                                    type="button"
+                                    onClick={() => downloadSubmission(entry.id, entry.file_name)}
+                                    disabled={downloadingSubmissionId === entry.id}
+                                  >
+                                    {downloadingSubmissionId === entry.id ? 'Downloading…' : 'Download'}
+                                  </BtnPrimary>
+                                  <BtnSecondary
+                                    type="button"
+                                    onClick={() => (gradingSubmission?.id === entry.id ? setGradingSubmission(null) : openGrading(entry))}
+                                  >
+                                    {gradingSubmission?.id === entry.id ? 'Close panel' : 'Grade & feedback'}
+                                  </BtnSecondary>
+                                </div>
+                              </div>
+                              {gradingSubmission?.id === entry.id && (
+                                <GradingForm>
+                                  <Field label="Grade (numeric)">
+                                    <TextInput value={gradeField} onChange={(e) => setGradeField(e.target.value)} />
+                                  </Field>
+                                  <Field label="Feedback">
+                                    <TextArea value={feedbackField} onChange={(e) => setFeedbackField(e.target.value)} rows={4} />
+                                  </Field>
+                                  <label className={s.checkRow}>
+                                    <input type="checkbox" checked={publishField} onChange={(e) => setPublishField(e.target.checked)} />
+                                    Publish results to student (sends notification)
+                                  </label>
+                                  <div className={s.flexRow}>
+                                    <BtnPrimary type="button" disabled={gradingSaving} onClick={saveGrading}>
+                                      {gradingSaving ? 'Saving…' : 'Save grading'}
+                                    </BtnPrimary>
+                                    <BtnSecondary type="button" onClick={() => setGradingSubmission(null)}>Cancel</BtnSecondary>
+                                  </div>
+                                </GradingForm>
+                              )}
+                            </QueueItem>
+                          ))
+                        )}
+                      </div>
                     )}
-                  </div>
-                </>
-              )}
+                  </>
+                )}
+
+                {!isLecturer && (
+                  <>
+                    <AssessmentDivider />
+                    <div className={s.flexRow}>
+                      <StatusBadge variant={status.badgeVariant}>{status.label}</StatusBadge>
+                    </div>
+
+                    {submission?.submitted_at && (
+                      <div className={s.studentPanel}>
+                        <AssessmentMeta strong>
+                          Submitted {new Date(submission.submitted_at).toLocaleString()}
+                        </AssessmentMeta>
+                        {submission.grade === null || submission.grade === undefined ? (
+                          <p className={s.feedbackItem} style={{ color: '#2563eb', fontWeight: 600 }}>Waiting for grading</p>
+                        ) : (
+                          <>
+                            <p className={s.feedbackItem} style={{ color: '#047857', fontWeight: 600 }}>Grade: {submission.grade}</p>
+                            {submission.feedback ? (
+                              <div className={s.feedbackBlock}>Feedback: {submission.feedback}</div>
+                            ) : null}
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    <div className={`${s.studentPanel} ${s.uploadRow}`}>
+                      <input
+                        type="file"
+                        accept=".pdf,.jpg,.png,.doc,.docx"
+                        onChange={(e) => setSubmitFile({ ...submitFile, [assignment.id]: e.target.files?.[0] || null })}
+                        disabled={!status.canUpload}
+                      />
+                      <BtnPrimary
+                        type="button"
+                        onClick={() => submitAssignment(assignment.id)}
+                        disabled={!status.canUpload || submittingId === assignment.id}
+                      >
+                        {submittingId === assignment.id ? 'Uploading…' : status.uploadLabel}
+                      </BtnPrimary>
+                      {status.canDelete && submission?.id ? (
+                        <BtnDanger type="button" onClick={() => deleteSubmission(assignment.id)} disabled={deletingId === assignment.id}>
+                          {deletingId === assignment.id ? 'Deleting…' : 'Delete submission'}
+                        </BtnDanger>
+                      ) : null}
+                    </div>
+                  </>
+                )}
+              </AssessmentCard>
             </li>
           );
         })}
-        {!loading && assignments.length === 0 && <p style={{ color: '#888' }}>No assignments yet.</p>}
-      </ul>
-      </div>
-    </div>
+      </AssessmentList>
+
+      {!loading && assignments.length === 0 ? (
+        <AssessmentEmpty>No assignments in this course yet.</AssessmentEmpty>
+      ) : null}
+    </AssessmentShell>
   );
 }
-
-function resolveCourseAccessMessage(err, fallback) {
-  const status = err?.response?.status;
-  if (status === 403) return 'Access denied: you are not enrolled in this course.';
-  if (status === 404) return 'This course does not exist or is no longer available.';
-  return err?.response?.data?.error || fallback;
-}
-
-function getAssignmentStatus(assignment) {
-  const submission = assignment?.mySubmission;
-  const dueTime = assignment?.due_date ? new Date(assignment.due_date).getTime() : null;
-  const isPastDue = dueTime ? Date.now() >= dueTime : false;
-
-  if (submission?.grade !== null && submission?.grade !== undefined) {
-    return {
-      label: `Graded: ${submission.grade}`,
-      color: '#16a34a',
-      borderColor: '#bbf7d0',
-      canUpload: false,
-      canDelete: false,
-      uploadLabel: 'Submitted'
-    };
-  }
-
-  if (submission?.id) {
-    return {
-      label: 'Waiting for grading',
-      color: '#2563eb',
-      borderColor: '#bfdbfe',
-      canUpload: !isPastDue,
-      canDelete: !isPastDue,
-      uploadLabel: isPastDue ? 'Upload Closed' : 'Resubmit'
-    };
-  }
-
-  if (isPastDue) {
-    return {
-      label: 'Submission closed',
-      color: '#b42318',
-      borderColor: '#fecdca',
-      canUpload: false,
-      canDelete: false,
-      uploadLabel: 'Upload Closed'
-    };
-  }
-
-  return {
-    label: 'Ready to submit',
-    color: '#16a085',
-    borderColor: '#b7eadf',
-    canUpload: true,
-    canDelete: false,
-    uploadLabel: 'Upload Submission'
-  };
-}
-
-const inputStyle = {
-  padding: '8px 12px',
-  borderRadius: 6,
-  border: '1px solid #ddd'
-};
-
-const primaryButtonStyle = {
-  background: '#4f8ef7',
-  color: '#fff',
-  padding: '8px 16px',
-  borderRadius: 6,
-  border: 'none',
-  cursor: 'pointer'
-};
-
-const secondaryButtonStyle = {
-  background: '#fff',
-  color: '#b42318',
-  padding: '8px 16px',
-  borderRadius: 6,
-  border: '1px solid #fecdca',
-  cursor: 'pointer'
-};
-
-const statusBadgeStyle = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  border: '1px solid',
-  borderRadius: 999,
-  padding: '4px 10px',
-  fontSize: '0.82rem',
-  fontWeight: 600
-};

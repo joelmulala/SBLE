@@ -4,20 +4,27 @@ import React, {
 import { useParams, useNavigate } from 'react-router-dom';
 import { useKeycloak } from '../auth/AuthProvider';
 import api from '../config/api';
+import ClassroomMediaStage from '../components/classroom/ClassroomMediaStage';
+import MediaControlDock from '../components/classroom/MediaControlDock';
+import FloatingSelfView from '../components/classroom/FloatingSelfView';
+import VideoStageChrome from '../components/classroom/VideoStageChrome';
+import LiveStageBadge from '../components/classroom/LiveStageBadge';
+import StageSignalHint from '../components/classroom/StageSignalHint';
+import ParticipantRoster from '../components/classroom/ParticipantRoster';
+import RaiseHandButton from '../components/classroom/RaiseHandButton';
+import QuestionSignalButton from '../components/classroom/QuestionSignalButton';
+import ParticipationIndicators from '../components/classroom/ParticipationIndicators';
+import ClassroomChatPanel from '../components/classroom/ClassroomChatPanel';
+import AttendanceTracker from '../components/classroom/AttendanceTracker';
+import SessionMetricsPanel from '../components/classroom/SessionMetricsPanel';
+import LiveAttendanceBadge from '../components/classroom/LiveAttendanceBadge';
+import SessionSummaryModal from '../components/classroom/SessionSummaryModal';
+import LecturerControlsPanel from '../components/classroom/LecturerControlsPanel';
+import { createClassroomMediaAdapter } from '../services/classroom/createClassroomMediaAdapter';
+import { mergeChatMessages } from '../services/classroom/classroomChatMessages';
 import styles from './Room.module.css';
 
-const JITSI_API_SCRIPT = 'https://meet.jit.si/external_api.js';
-
-function pickParticipantIdFromPayload(payload) {
-  if (!payload || typeof payload !== 'object') return null;
-  return (
-    payload.participant?._id
-    || payload.participant?.id
-    || payload.id
-    || payload.participantId
-    || null
-  );
-}
+const USE_LIVEKIT = String(process.env.REACT_APP_CLASSROOM_BACKEND || 'jitsi').toLowerCase() === 'livekit';
 
 function normalizeLecturerName(value) {
   if (value == null) return '';
@@ -40,8 +47,9 @@ function formatElapsed(ms) {
 export default function Room() {
   const { roomId, token } = useParams();
   const { keycloak, initialized } = useKeycloak();
-  const jitsiContainerRef = useRef(null);
-  const jitsiApiRef = useRef(null);
+  const mediaContainerRef = useRef(null);
+  const liveStageRef = useRef(null);
+  const mediaAdapterRef = useRef(null);
   const lecturerSessionLiveRef = useRef(false);
   const participantsRef = useRef([]);
   const classroomRootRef = useRef(null);
@@ -58,7 +66,7 @@ export default function Room() {
   const [participants, setParticipants] = useState([]);
   const [classEnded, setClassEnded] = useState(false);
   const [endMessage, setEndMessage] = useState('Class has ended');
-  const [jitsiSessionActive, setJitsiSessionActive] = useState(false);
+  const [mediaSessionActive, setMediaSessionActive] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarTab, setSidebarTab] = useState('participants');
@@ -67,6 +75,28 @@ export default function Room() {
   const [elapsedTick, setElapsedTick] = useState(0);
   const [lecturerStarted, setLecturerStarted] = useState(false);
   const [studentJoinedIntent, setStudentJoinedIntent] = useState(false);
+  const [liveKitRoom, setLiveKitRoom] = useState(null);
+  const [chatMessages, setChatMessages] = useState([]);
+  const chatSystemKeysRef = useRef(new Set());
+  const chatParticipantInitRef = useRef(false);
+  const prevParticipantIdsRef = useRef(new Set());
+  const participantDisplayNamesRef = useRef(new Map());
+  const screenSharePrevRef = useRef(new Map());
+  /** `undefined` = not in post-class summary flow; otherwise summary object or null after fetch */
+  const [endClassAttendanceSummary, setEndClassAttendanceSummary] = useState(undefined);
+  const [classroomSession, setClassroomSession] = useState({
+    requests: [],
+    participationLocked: false
+  });
+  const [stageMeta, setStageMeta] = useState({
+    layoutMode: 'discussion',
+    presentationFsActive: false,
+    discussionSpotlightId: null,
+    discussionCount: 0
+  });
+  const [moderationNotice, setModerationNotice] = useState(null);
+  const moderationNoticeTimerRef = useRef(null);
+  const keycloakSubRef = useRef('');
 
   const activeRoomId = decodeURIComponent(roomId || token || '').trim();
   const navigate = useNavigate();
@@ -78,30 +108,18 @@ export default function Room() {
 
   userNameRef.current = user.name;
   userRoleRef.current = user.role;
+  keycloakSubRef.current = keycloak.tokenParsed?.sub || '';
 
   useEffect(() => {
     participantsRef.current = participants;
   }, [participants]);
 
-  const execJitsi = useCallback((command, value) => {
+  const disposeMedia = useCallback(() => {
     try {
-      const apiInst = jitsiApiRef.current;
-      if (!apiInst || typeof apiInst.executeCommand !== 'function') return;
-      if (value !== undefined) apiInst.executeCommand(command, value);
-      else apiInst.executeCommand(command);
+      mediaAdapterRef.current?.disconnect();
     } catch (_) { /* ignore */ }
-  }, []);
-
-  const disposeJitsi = useCallback(() => {
-    if (jitsiApiRef.current) {
-      try {
-        jitsiApiRef.current.dispose();
-      } catch (e) {
-        /* ignore */
-      }
-      jitsiApiRef.current = null;
-    }
-    setJitsiSessionActive(false);
+    setLiveKitRoom(null);
+    setMediaSessionActive(false);
   }, []);
 
   const closeRoomOnServer = useCallback(async () => {
@@ -114,9 +132,18 @@ export default function Room() {
   }, [activeRoomId]);
 
   const exitLiveClass = useCallback((message, { closeOnServer = false } = {}) => {
+    if (!chatSystemKeysRef.current.has('class-ended')) {
+      chatSystemKeysRef.current.add('class-ended');
+      setChatMessages((prev) => mergeChatMessages(prev, [{
+        kind: 'system',
+        id: `sys-class-ended-${Date.now()}`,
+        t: Date.now(),
+        body: 'Class ended.'
+      }]));
+    }
     setEndMessage(message);
     setClassEnded(true);
-    disposeJitsi();
+    disposeMedia();
     setReconnecting(false);
     studentJoinedIntentRef.current = false;
     setLecturerStarted(false);
@@ -125,18 +152,25 @@ export default function Room() {
     if (closeOnServer && user.role === 'lecturer') {
       closeRoomOnServer();
     }
-  }, [closeRoomOnServer, disposeJitsi, user.role]);
+  }, [closeRoomOnServer, disposeMedia, user.role]);
 
   const exitLiveClassRef = useRef(exitLiveClass);
   exitLiveClassRef.current = exitLiveClass;
 
   useEffect(() => {
+    setEndClassAttendanceSummary(undefined);
+  }, [activeRoomId]);
+
+  useEffect(() => {
     if (!classEnded) return undefined;
+    if (USE_LIVEKIT && user.role === 'lecturer' && endClassAttendanceSummary !== undefined) {
+      return undefined;
+    }
     const t = setTimeout(() => {
       navigate('/rooms', { state: { liveClassEnded: true, liveClassMessage: endMessage } });
     }, 2200);
     return () => clearTimeout(t);
-  }, [classEnded, endMessage, navigate]);
+  }, [classEnded, endMessage, navigate, endClassAttendanceSummary, user.role]);
 
   useEffect(() => {
     if (!initialized || !keycloak.authenticated || !activeRoomId) return undefined;
@@ -177,10 +211,10 @@ export default function Room() {
   }, [initialized, keycloak.authenticated, keycloak.token, activeRoomId]);
 
   useEffect(() => {
-    if (!jitsiSessionActive || !sessionStartedAt) return undefined;
+    if (!mediaSessionActive || !sessionStartedAt) return undefined;
     const id = setInterval(() => setElapsedTick((n) => n + 1), 1000);
     return () => clearInterval(id);
-  }, [jitsiSessionActive, sessionStartedAt]);
+  }, [mediaSessionActive, sessionStartedAt]);
 
   const elapsedDisplay = useMemo(() => {
     if (!sessionStartedAt) return '0:00';
@@ -191,218 +225,110 @@ export default function Room() {
     const lecturerLive = Boolean(roomDetails?.lecturerActive || roomDetails?.lecturer_active);
     if (reconnecting) return 'Reconnecting';
     if (loadError) return 'Unavailable';
-    if (jitsiSessionActive) return 'Live';
+    if (mediaSessionActive) return 'Live';
     if (user.role === 'lecturer' && !lecturerStarted) return 'Not started';
     if (user.role === 'student') {
       if (!roomDetails) return 'Preparing';
       if (!lecturerLive) return 'Waiting for lecturer';
       if (studentJoinedIntent && isLoading) return 'Joining classroom';
-      if (!jitsiSessionActive) return 'Class started';
+      if (!mediaSessionActive) return 'Class started';
     }
     if (isLoading && lecturerStarted) return 'Joining classroom';
     return 'Preparing';
-  }, [reconnecting, loadError, jitsiSessionActive, user.role, lecturerStarted, isLoading, roomDetails, studentJoinedIntent]);
+  }, [reconnecting, loadError, mediaSessionActive, user.role, lecturerStarted, isLoading, roomDetails, studentJoinedIntent]);
 
   useEffect(() => {
     if (!activeRoomId) return undefined;
 
     let disposed = false;
     let pollTimer = null;
-    let jitsiStarted = false;
 
-    const loadScript = () => new Promise((resolve, reject) => {
-      if (window.JitsiMeetExternalAPI) {
-        resolve();
-        return;
-      }
+    const adapter = createClassroomMediaAdapter();
+    mediaAdapterRef.current = adapter;
 
-      const existingScript = document.querySelector(`script[src="${JITSI_API_SCRIPT}"]`);
-      if (existingScript) {
-        existingScript.addEventListener('load', resolve, { once: true });
-        existingScript.addEventListener('error', reject, { once: true });
-        return;
-      }
-
-      const script = document.createElement('script');
-      script.src = JITSI_API_SCRIPT;
-      script.async = true;
-      script.onload = resolve;
-      script.onerror = reject;
-      document.body.appendChild(script);
+    adapter.onParticipantsChanged((list) => {
+      if (disposed) return;
+      setParticipants(list);
     });
 
-    const attachParticipantSignals = (jitsiApi) => {
-      const syncRaiseHand = (payload) => {
-        const pid = pickParticipantIdFromPayload(payload);
-        const raised = payload?.raisedHand ?? payload?.handRaised ?? payload?.raised;
-        if (pid == null) return;
-        setParticipants((prev) => prev.map((p) => (
-          String(p.id) === String(pid) ? { ...p, raisedHand: Boolean(raised) } : p
-        )));
-      };
-
-      const syncDominant = (payload) => {
-        const id = payload?.id;
-        setParticipants((prev) => prev.map((p) => ({
-          ...p,
-          isDominant: id != null && String(p.id) === String(id)
-        })));
-      };
-
-      try {
-        jitsiApi.addEventListener('raiseHandUpdated', syncRaiseHand);
-      } catch (_) { /* optional */ }
-      try {
-        jitsiApi.addEventListener('dominantSpeakerChanged', syncDominant);
-      } catch (_) { /* optional */ }
-    };
-
-    const createMeeting = () => {
-      if (disposed || !window.JitsiMeetExternalAPI) return;
-      if (!jitsiContainerRef.current) {
-        requestAnimationFrame(() => {
-          if (!disposed) createMeeting();
-        });
-        return;
-      }
-
-      const isLecturer = userRoleRef.current === 'lecturer';
-      const displayName = userNameRef.current;
-      const domain = 'meet.jit.si';
-
-      const options = {
-        roomName: activeRoomId,
-        parentNode: jitsiContainerRef.current,
-        userInfo: {
-          displayName,
-          role: isLecturer ? 'moderator' : 'participant'
-        },
-        configOverwrite: {
-          enableUserRolesBasedOnToken: false,
-          prejoinPageEnabled: false,
-          prejoinConfig: { enabled: false },
-          /* Keep lobby off so participants are not held in Jitsi's knock/wait UI */
-          enableLobby: false,
-          startWithAudioMuted: false,
-          startWithVideoMuted: false,
-          disableDeepLinking: true,
-          enableWelcomePage: false,
-          requireDisplayName: false,
-          disableProfile: true,
-          disableSelfDemote: true,
-          readOnlyName: !isLecturer,
-          disableRemoteMute: true,
-          disableInviteFunctions: true,
-          enableInsecureRoomNameWarning: false,
-          localRecording: { enabled: isLecturer },
-          fileRecordingsEnabled: isLecturer,
-          remoteVideoMenu: isLecturer
-            ? { disableKick: false, disableGrantModerator: false }
-            : { disableKick: true, disableGrantModerator: true }
-        },
-        interfaceConfigOverwrite: {
-          SHOW_JITSI_WATERMARK: false,
-          SHOW_BRAND_WATERMARK: false,
-          SHOW_POWERED_BY: false,
-          SHOW_PROMOTIONAL_CLOSE_PAGE: false,
-          DISPLAY_WELCOME_PAGE_CONTENT: false,
-          SHOW_DEEP_LINKING_IMAGE: false,
-          MOBILE_APP_PROMO: false,
-          APP_NAME: 'SBLE Live Class',
-          NATIVE_APP_NAME: 'SBLE Live Class',
-          TOOLBAR_BUTTONS: ['raisehand', 'settings']
-        }
-      };
-
-      const jitsiApi = new window.JitsiMeetExternalAPI(domain, options);
-      jitsiApiRef.current = jitsiApi;
-
-      attachParticipantSignals(jitsiApi);
-
-      jitsiApi.addEventListener('videoConferenceJoined', (event) => {
-        if (!disposed) setIsLoading(false);
-        setJitsiSessionActive(true);
-        setSessionStartedAt(Date.now());
-        if (isLecturer) {
-          lecturerSessionLiveRef.current = true;
-          api.post(`/rooms/${encodeURIComponent(activeRoomId)}/presence`, { active: true }).catch(() => {});
-        }
-        setParticipants((prev) => {
-          const exists = prev.some((p) => p.id === event.id);
-          if (!exists) {
-            return [...prev, {
-              id: event.id,
-              name: displayName,
-              isLocal: true,
-              raisedHand: false,
-              isDominant: false,
-              isModerator: isLecturer
-            }];
-          }
-          return prev;
-        });
-      });
-
-      jitsiApi.addEventListener('videoConferenceLeft', () => {
-        if (disposed) return;
-        if (isLecturer) {
-          exitLiveClassRef.current('Class ended', { closeOnServer: true });
-        }
-      });
-
-      jitsiApi.addEventListener('participantJoined', (event) => {
-        setParticipants((prev) => {
-          const exists = prev.some((p) => p.id === event.id);
-          if (!exists) {
-            return [...prev, {
-              id: event.id,
-              name: event.displayName || 'Participant',
-              isLocal: false,
-              raisedHand: false,
-              isDominant: false,
-              isModerator: Boolean(event.isModerator)
-            }];
-          }
-          return prev;
-        });
-      });
-      jitsiApi.addEventListener('participantLeft', (event) => {
-        setParticipants((prev) => prev.filter((p) => p.id !== event.id));
-      });
-
-      jitsiApi.addEventListener('readyToClose', () => {
-        if (!disposed) setIsLoading(false);
-      });
-    };
-
-    const startJitsiOnce = () => {
-      if (jitsiStarted || disposed) return;
-      jitsiStarted = true;
-      setIsLoading(true);
-      loadScript()
-        .then(() => {
-          if (disposed) return;
-          try {
-            createMeeting();
-          } catch (e) {
-            jitsiStarted = false;
-            setIsLoading(false);
-            setLoadError('Could not start the meeting. Try again.');
-            if (userRoleRef.current === 'student') {
-              studentJoinedIntentRef.current = false;
-              setStudentJoinedIntent(false);
-            }
-          }
-        })
-        .catch(() => {
-          jitsiStarted = false;
-          if (!disposed) setLoadError('Could not open the classroom. Try again.');
+    adapter.onConnectionStateChanged((evt) => {
+      if (disposed) return;
+      switch (evt.type) {
+        case 'connecting':
+          setIsLoading(true);
+          break;
+        case 'session_joined':
           setIsLoading(false);
+          setMediaSessionActive(true);
+          setSessionStartedAt(Date.now());
+          if (USE_LIVEKIT) {
+            chatParticipantInitRef.current = false;
+            prevParticipantIdsRef.current = new Set();
+            screenSharePrevRef.current = new Map();
+            chatSystemKeysRef.current.delete('class-ended');
+          }
+          if (evt.role === 'lecturer') {
+            lecturerSessionLiveRef.current = true;
+            api.post(`/rooms/${encodeURIComponent(activeRoomId)}/presence`, { active: true }).catch(() => {});
+          }
+          break;
+        case 'session_ready':
+          setIsLoading(false);
+          break;
+        case 'local_left_session':
+          if (evt.role === 'lecturer') {
+            exitLiveClassRef.current('Class ended', { closeOnServer: true });
+          }
+          break;
+        case 'script_error':
+        case 'start_error':
+          setIsLoading(false);
+          setLoadError(evt.message || '');
           if (userRoleRef.current === 'student') {
             studentJoinedIntentRef.current = false;
             setStudentJoinedIntent(false);
           }
-        });
+          break;
+        default:
+          break;
+      }
+    });
+
+    adapter.onClassroomChatMessage((msg) => {
+      if (disposed || !msg || msg.kind !== 'user') return;
+      setChatMessages((prev) => mergeChatMessages(prev, [msg]));
+    });
+
+    adapter.onClassroomSessionState((state) => {
+      if (disposed || !state) return;
+      setClassroomSession({
+        requests: Array.isArray(state.requests) ? state.requests : [],
+        participationLocked: Boolean(state.participationLocked)
+      });
+      if (state.notice?.message) {
+        const sub = keycloakSubRef.current;
+        if (!state.notice.targetIdentity || state.notice.targetIdentity === sub) {
+          if (moderationNoticeTimerRef.current) clearTimeout(moderationNoticeTimerRef.current);
+          setModerationNotice(state.notice.message);
+          moderationNoticeTimerRef.current = setTimeout(() => {
+            setModerationNotice(null);
+            moderationNoticeTimerRef.current = null;
+          }, 7000);
+        }
+      }
+    });
+
+    const startMediaOnce = () => {
+      adapter.connect({
+        roomId: activeRoomId,
+        displayName: userNameRef.current,
+        role: userRoleRef.current,
+        container: USE_LIVEKIT ? null : mediaContainerRef.current,
+        getDisposed: () => disposed,
+        onRtcRoom: USE_LIVEKIT ? (r) => {
+          if (!disposed) setLiveKitRoom(r);
+        } : undefined
+      });
     };
 
     const pollRoomStatus = () => {
@@ -441,7 +367,7 @@ export default function Room() {
       });
     };
 
-    startMeetingRef.current = startJitsiOnce;
+    startMeetingRef.current = startMediaOnce;
     pollRoomStatusRef.current = pollRoomStatus;
 
     if (userRoleRef.current === 'lecturer') {
@@ -484,12 +410,164 @@ export default function Room() {
         closeRoomOnServer();
       }
       lecturerSessionLiveRef.current = false;
-      disposeJitsi();
+      chatSystemKeysRef.current.clear();
+      chatParticipantInitRef.current = false;
+      prevParticipantIdsRef.current = new Set();
+      screenSharePrevRef.current = new Map();
+      setChatMessages([]);
+      if (moderationNoticeTimerRef.current) {
+        clearTimeout(moderationNoticeTimerRef.current);
+        moderationNoticeTimerRef.current = null;
+      }
+      setModerationNotice(null);
+      setClassroomSession({ requests: [], participationLocked: false });
+      try {
+        adapter.disconnect();
+      } catch (_) { /* ignore */ }
+      mediaAdapterRef.current = null;
+      setLiveKitRoom(null);
+      setMediaSessionActive(false);
     };
-  }, [activeRoomId, user.name, user.role, closeRoomOnServer, disposeJitsi]);
+  }, [activeRoomId, user.name, user.role, closeRoomOnServer]);
 
-  const handleEndClass = () => {
-    exitLiveClass('Class ended', { closeOnServer: true });
+  useEffect(() => {
+    if (!USE_LIVEKIT || !mediaSessionActive) return;
+
+    participants.forEach((p) => {
+      participantDisplayNamesRef.current.set(String(p.id), p.name || 'Participant');
+    });
+
+    const currIds = new Set(participants.map((p) => String(p.id)));
+    const additions = [];
+
+    if (!chatParticipantInitRef.current) {
+      chatParticipantInitRef.current = true;
+      prevParticipantIdsRef.current = currIds;
+      participants.forEach((p) => {
+        screenSharePrevRef.current.set(String(p.id), Boolean(p.screenSharing));
+      });
+      return;
+    }
+
+    const prevIds = prevParticipantIdsRef.current;
+
+    for (const id of prevIds) {
+      if (!currIds.has(id)) {
+        chatSystemKeysRef.current.delete(`join:${id}`);
+        chatSystemKeysRef.current.delete(`screen:${id}`);
+        screenSharePrevRef.current.delete(id);
+        const leaveKey = `leave:${id}`;
+        if (!chatSystemKeysRef.current.has(leaveKey)) {
+          chatSystemKeysRef.current.add(leaveKey);
+          const nm = participantDisplayNamesRef.current.get(id) || 'Participant';
+          participantDisplayNamesRef.current.delete(id);
+          additions.push({
+            kind: 'system',
+            id: `sys-leave-${id}-${Date.now()}`,
+            t: Date.now(),
+            body: `${nm} left the classroom.`
+          });
+        }
+      }
+    }
+
+    for (const p of participants) {
+      const pid = String(p.id);
+      const nowShare = Boolean(p.screenSharing);
+
+      if (!prevIds.has(pid)) {
+        screenSharePrevRef.current.set(pid, nowShare);
+        chatSystemKeysRef.current.delete(`leave:${pid}`);
+        if (!p.isLocal) {
+          const key = `join:${pid}`;
+          if (!chatSystemKeysRef.current.has(key)) {
+            chatSystemKeysRef.current.add(key);
+            additions.push({
+              kind: 'system',
+              id: `sys-join-${pid}-${Date.now()}`,
+              t: Date.now(),
+              body: `${p.name || 'Participant'} joined the classroom.`
+            });
+          }
+        }
+      }
+
+      const wasShare = screenSharePrevRef.current.get(pid);
+      if (wasShare !== undefined && prevIds.has(pid)) {
+        if (!wasShare && nowShare) {
+          const skey = `screen:${pid}`;
+          if (!chatSystemKeysRef.current.has(skey)) {
+            chatSystemKeysRef.current.add(skey);
+            const lect = p.classroomRole === 'lecturer' || p.classroomRole === 'admin' || p.isModerator;
+            const line = lect
+              ? 'Lecturer started screen sharing.'
+              : `${p.name || 'Participant'} started screen sharing.`;
+            additions.push({
+              kind: 'system',
+              id: `sys-screen-${pid}-${Date.now()}`,
+              t: Date.now(),
+              body: line
+            });
+          }
+        } else if (wasShare && !nowShare) {
+          chatSystemKeysRef.current.delete(`screen:${pid}`);
+        }
+      }
+
+      screenSharePrevRef.current.set(pid, nowShare);
+    }
+
+    prevParticipantIdsRef.current = currIds;
+
+    if (additions.length) {
+      setChatMessages((prev) => mergeChatMessages(prev, additions));
+    }
+  }, [participants, mediaSessionActive]);
+
+  const handleChatSend = useCallback((text) => {
+    mediaAdapterRef.current?.sendChatMessage?.(text);
+  }, []);
+
+  const handleModerateParticipant = useCallback(async (participantId, action) => {
+    try {
+      await mediaAdapterRef.current?.moderateRemoteParticipant?.(participantId, action);
+    } catch (_) { /* ignore */ }
+  }, []);
+
+  const handleModerationRequestDecision = useCallback((requestId, decision) => {
+    mediaAdapterRef.current?.approveModerationRequest?.(requestId, decision);
+  }, []);
+
+  const handleToggleParticipationLock = useCallback(() => {
+    const next = !classroomSession.participationLocked;
+    mediaAdapterRef.current?.setParticipationLocked?.(next);
+  }, [classroomSession.participationLocked]);
+
+  const handleReclaimPresentation = useCallback(async () => {
+    try {
+      await mediaAdapterRef.current?.reclaimPresentations?.();
+    } catch (_) { /* ignore */ }
+  }, []);
+
+  const handleEndClass = async () => {
+    if (USE_LIVEKIT && user.role === 'lecturer') {
+      try {
+        await api.post(`/rooms/${encodeURIComponent(activeRoomId)}/session/leave`, {});
+      } catch (_) { /* ignore */ }
+      try {
+        await api.patch(`/rooms/${encodeURIComponent(activeRoomId)}/close`);
+      } catch (_) { /* ignore */ }
+      try {
+        const res = await api.get(`/rooms/${encodeURIComponent(activeRoomId)}/session/summary`);
+        setEndClassAttendanceSummary(res.data);
+      } catch (_) {
+        setEndClassAttendanceSummary(null);
+      }
+      exitLiveClass('Class ended', { closeOnServer: false });
+    } else {
+      setEndClassAttendanceSummary(undefined);
+      exitLiveClass('Class ended', { closeOnServer: true });
+    }
   };
 
   const handleLeaveClass = () => {
@@ -515,20 +593,63 @@ export default function Room() {
     [participants]
   );
 
+  const questionParticipants = useMemo(
+    () => participants.filter((p) => p.hasQuestion),
+    [participants]
+  );
+
+  const localParticipantState = useMemo(
+    () => participants.find((p) => p.isLocal) || null,
+    [participants]
+  );
+
+  const stageBadgeName = useMemo(() => {
+    const raw = String(localParticipantState?.name || user.name || 'You').trim() || 'You';
+    if (/\(you\)\s*$/i.test(raw)) return raw;
+    return `${raw} (You)`;
+  }, [localParticipantState?.name, user.name]);
+
+  const stageRoleLabel = user.role === 'lecturer' ? 'Instructor' : 'Student';
+
+  const presenceByIdentity = useMemo(() => {
+    const o = {};
+    participants.forEach((p) => {
+      o[p.id] = {
+        raisedHand: Boolean(p.raisedHand),
+        hasQuestion: Boolean(p.hasQuestion),
+        participationAck: p.participationAck || null
+      };
+    });
+    return o;
+  }, [participants]);
+
   const lecturerLive = Boolean(roomDetails?.lecturerActive || roomDetails?.lecturer_active);
 
-  const showLecturerLobby = user.role === 'lecturer' && !lecturerStarted && !jitsiSessionActive;
-  const showStudentLobby = user.role === 'student' && roomDetails && !lecturerLive && !jitsiSessionActive;
-  const showStudentJoining = user.role === 'student' && studentJoinedIntent && !jitsiSessionActive && isLoading;
-  const showStudentJoinGate = user.role === 'student' && lecturerLive && !jitsiSessionActive && !studentJoinedIntent && !isLoading && !loadError;
+  const showLecturerLobby = user.role === 'lecturer' && !lecturerStarted && !mediaSessionActive;
+  const showStudentLobby = user.role === 'student' && roomDetails && !lecturerLive && !mediaSessionActive;
+  const showStudentJoining = user.role === 'student' && studentJoinedIntent && !mediaSessionActive && isLoading;
+  const showStudentJoinGate = user.role === 'student' && lecturerLive && !mediaSessionActive && !studentJoinedIntent && !isLoading && !loadError;
+
+  const liveKitActiveSession = USE_LIVEKIT && mediaSessionActive;
 
   if (classEnded) {
+    const showAttendanceSummary = USE_LIVEKIT && user.role === 'lecturer' && endClassAttendanceSummary !== undefined;
     return (
       <div className={styles.endedShell}>
-        <div className={styles.endedCard}>
-          <p className={styles.endedTitle}>{endMessage}</p>
-          <p className={styles.endedLead}>Returning to rooms…</p>
-        </div>
+        {showAttendanceSummary ? (
+          <SessionSummaryModal
+            summary={endClassAttendanceSummary}
+            onDismiss={() => {
+              setEndClassAttendanceSummary(undefined);
+              navigate('/rooms', { state: { liveClassEnded: true, liveClassMessage: endMessage } });
+            }}
+          />
+        ) : (
+          <div className={styles.endedCard}>
+            <p className={styles.endedTitle}>{endMessage}</p>
+            <p className={styles.endedLead}>Returning to rooms…</p>
+          </div>
+        )}
       </div>
     );
   }
@@ -536,50 +657,99 @@ export default function Room() {
   return (
     <div className={styles.roomShell}>
       <div ref={classroomRootRef} className={styles.classroomRoot}>
+        {USE_LIVEKIT && mediaSessionActive && activeRoomId ? (
+          <AttendanceTracker
+            roomToken={activeRoomId}
+            enabled={Boolean(mediaSessionActive && activeRoomId)}
+            metrics={{
+              raisedHand: Boolean(localParticipantState?.raisedHand),
+              hasQuestion: Boolean(localParticipantState?.hasQuestion),
+              screenSharing: Boolean(localParticipantState?.screenSharing),
+              speaking: Boolean(localParticipantState?.speaking || localParticipantState?.isDominant)
+            }}
+          />
+        ) : null}
         <header className={styles.topBar}>
           <div className={styles.topBarMain}>
-            <h1 className={styles.classTitle}>{courseTitle || 'Live class'}</h1>
+            <p className={styles.topBarKicker}>Teaching workspace</p>
+            <h1 className={styles.liveRoomTitle}>Live classroom</h1>
             <p className={styles.classSubtitle}>
               {lecturerNameClean ? (
-                <>
-                  <span>{lecturerNameClean}</span>
-                  <span className={styles.topDot} aria-hidden>·</span>
-                </>
+                <span className={styles.hostLine}>
+                  {user.role === 'student' ? `Instructor · ${lecturerNameClean}` : `Host · ${lecturerNameClean}`}
+                </span>
               ) : null}
-              <span className={styles.sessionTimer} aria-label="Session time">
-                {jitsiSessionActive ? elapsedDisplay : '—'}
-              </span>
+              {!liveKitActiveSession ? (
+                <span className={styles.sessionTimer} aria-label="Session time">
+                  {mediaSessionActive ? (
+                    <>
+                      {lecturerNameClean ? <span className={styles.topDot} aria-hidden>·</span> : null}
+                      {elapsedDisplay}
+                    </>
+                  ) : (
+                    '—'
+                  )}
+                </span>
+              ) : null}
             </p>
           </div>
           <div className={styles.topBarMeta}>
-            <span className={styles.livePill} data-state={liveStateLabel === 'Live' ? 'live' : 'idle'}>
-              {liveStateLabel}
-            </span>
-            {reconnecting ? <span className={styles.reconnectHint}>Checking connection…</span> : null}
-            <button type="button" className={styles.topBarBtn} onClick={toggleFullscreen}>
-              Fullscreen
-            </button>
-            {user.role === 'lecturer' ? (
-              <button type="button" className={styles.topBarBtnDanger} onClick={handleEndClass}>
-                End class
-              </button>
+            {liveKitActiveSession ? (
+              <>
+                <span className={styles.livePill} data-state="live">
+                  Live
+                </span>
+                {reconnecting ? <span className={styles.reconnectHint}>Reconnecting…</span> : null}
+              </>
             ) : (
-              <button type="button" className={styles.topBarBtnSecondary} onClick={handleLeaveClass}>
-                Leave
-              </button>
+              <>
+                <span
+                  className={styles.livePill}
+                  data-state={liveStateLabel === 'Live' ? 'live' : 'idle'}
+                  title={liveStateLabel}
+                >
+                  {liveStateLabel === 'Live' || liveStateLabel === 'Reconnecting' ? liveStateLabel : null}
+                </span>
+                {reconnecting ? <span className={styles.reconnectHint}>Checking connection…</span> : null}
+                {mediaSessionActive && !USE_LIVEKIT ? (
+                  <>
+                    <button type="button" className={styles.topBarBtn} onClick={toggleFullscreen}>
+                      Fullscreen
+                    </button>
+                    {user.role === 'lecturer' ? (
+                      <button type="button" className={styles.topBarBtnDanger} onClick={handleEndClass}>
+                        End class
+                      </button>
+                    ) : (
+                      <button type="button" className={styles.topBarBtnSecondary} onClick={handleLeaveClass}>
+                        Leave
+                      </button>
+                    )}
+                  </>
+                ) : null}
+              </>
             )}
           </div>
         </header>
 
         <div className={styles.classroomBody}>
           <div className={styles.mainColumn}>
+            {moderationNotice ? (
+              <div className={styles.moderationNotice} role="status">
+                {moderationNotice}
+              </div>
+            ) : null}
             <div className={styles.videoShell} ref={videoShellRef}>
               {(showLecturerLobby || showStudentLobby || showStudentJoining || showStudentJoinGate) && (
                 <div className={styles.lobbyOverlay}>
                   {showLecturerLobby && (
                     <>
                       <p className={styles.lobbyTitle}>Start class</p>
-                      <p className={styles.lobbyText}>Open the meeting room. Complete any prompts inside the meeting window to join as host.</p>
+                      <p className={styles.lobbyText}>
+                        {USE_LIVEKIT
+                          ? 'Connect with your camera and microphone. Video appears inside SBLE—no external meeting window.'
+                          : 'Open the meeting room. Complete any prompts inside the meeting window to join as host.'}
+                      </p>
                       <button
                         type="button"
                         className={styles.primaryCta}
@@ -637,29 +807,136 @@ export default function Room() {
               ) : null}
 
               <div
-                ref={jitsiContainerRef}
-                id="jitsi-container"
+                ref={mediaContainerRef}
+                id={USE_LIVEKIT ? 'classroom-media' : 'jitsi-container'}
                 className={styles.videoWell}
-              />
+              >
+                {USE_LIVEKIT ? (
+                  <>
+                    <ClassroomMediaStage
+                      ref={liveStageRef}
+                      room={liveKitRoom}
+                      sidebarOpen={sidebarOpen}
+                      presenceByIdentity={presenceByIdentity}
+                      onStageMetaChange={setStageMeta}
+                    />
+                    {mediaSessionActive ? (
+                      <>
+                        <LiveStageBadge displayName={stageBadgeName} roleLabel={stageRoleLabel} />
+                        <StageSignalHint reconnecting={reconnecting} />
+                        <VideoStageChrome
+                          onClassroomFullscreen={toggleFullscreen}
+                          showPresentationExpand={stageMeta.layoutMode !== 'discussion'}
+                          presentationFsActive={stageMeta.presentationFsActive}
+                          onPresentationFullscreen={() => liveStageRef.current?.togglePresentationFullscreen?.()}
+                        />
+                        <FloatingSelfView
+                          room={liveKitRoom}
+                          participantCount={stageMeta.discussionCount || participants.length}
+                          spotlightIdentity={stageMeta.discussionSpotlightId}
+                          layoutMode={stageMeta.layoutMode}
+                        />
+                        <MediaControlDock
+                          role={user.role}
+                          micOn={Boolean(localParticipantState?.micOn)}
+                          camOn={Boolean(localParticipantState?.cameraOn)}
+                          screenSharing={Boolean(localParticipantState?.screenSharing)}
+                          participationLocked={classroomSession.participationLocked}
+                          sidebarOpen={sidebarOpen}
+                          sidebarTab={sidebarTab}
+                          onOpenChat={() => {
+                            setSidebarOpen(true);
+                            setSidebarTab('chat');
+                          }}
+                          onTogglePeople={() => {
+                            setSidebarOpen((o) => !o);
+                            setSidebarTab('participants');
+                          }}
+                          onToggleMic={() => mediaAdapterRef.current?.toggleMic()}
+                          onToggleCam={() => mediaAdapterRef.current?.toggleCamera()}
+                          onToggleShare={() => mediaAdapterRef.current?.toggleScreenShare()}
+                          onToggleRaiseHand={() => mediaAdapterRef.current?.toggleRaiseHand()}
+                          onToggleQuestion={() => mediaAdapterRef.current?.toggleQuestionSignal()}
+                          raisedHand={Boolean(localParticipantState?.raisedHand)}
+                          hasQuestion={Boolean(localParticipantState?.hasQuestion)}
+                          onAckUnderstood={() => mediaAdapterRef.current?.sendParticipationAck('understood')}
+                          onAckAgree={() => mediaAdapterRef.current?.sendParticipationAck('agree')}
+                          onRequestPresent={() => mediaAdapterRef.current?.requestPresentationAccess?.()}
+                          onRequestSpeak={() => mediaAdapterRef.current?.requestSpeakingTurn?.()}
+                          onCancelRequest={() => mediaAdapterRef.current?.cancelModerationRequest?.()}
+                          onEndOrLeave={user.role === 'lecturer' ? handleEndClass : handleLeaveClass}
+                          isLecturer={user.role === 'lecturer'}
+                        />
+                      </>
+                    ) : null}
+                  </>
+                ) : null}
+              </div>
             </div>
 
-            {jitsiSessionActive ? (
+            {mediaSessionActive && !(USE_LIVEKIT && mediaSessionActive) ? (
               <div className={styles.bottomBar} role="toolbar" aria-label="Class controls">
                 <div className={styles.bottomBarInner}>
-                  <button type="button" className={styles.barBtn} onClick={() => execJitsi('toggleAudio')}>
+                  <button type="button" className={styles.barBtn} onClick={() => mediaAdapterRef.current?.toggleMic()}>
                     Microphone
                   </button>
-                  <button type="button" className={styles.barBtn} onClick={() => execJitsi('toggleVideo')}>
+                  <button type="button" className={styles.barBtn} onClick={() => mediaAdapterRef.current?.toggleCamera()}>
                     Camera
                   </button>
+                  {USE_LIVEKIT && user.role === 'student' ? (
+                    <>
+                      <button
+                        type="button"
+                        className={styles.barBtn}
+                        disabled={classroomSession.participationLocked}
+                        onClick={() => mediaAdapterRef.current?.requestPresentationAccess?.()}
+                      >
+                        Request present
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.barBtn}
+                        disabled={classroomSession.participationLocked}
+                        onClick={() => mediaAdapterRef.current?.requestSpeakingTurn?.()}
+                      >
+                        Request speak
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.barBtn}
+                        onClick={() => mediaAdapterRef.current?.cancelModerationRequest?.()}
+                      >
+                        Cancel request
+                      </button>
+                    </>
+                  ) : null}
                   {user.role === 'lecturer' ? (
-                    <button type="button" className={styles.barBtn} onClick={() => execJitsi('toggleShareScreen')}>
+                    <button type="button" className={styles.barBtn} onClick={() => mediaAdapterRef.current?.toggleScreenShare()}>
                       Share screen
                     </button>
                   ) : null}
-                  <button type="button" className={styles.barBtn} onClick={() => execJitsi('toggleRaiseHand')}>
-                    Raise hand
-                  </button>
+                  <RaiseHandButton
+                    className={styles.barBtn}
+                    activeClassName={styles.barBtnActive}
+                    pressed={Boolean(localParticipantState?.raisedHand)}
+                    onToggle={() => mediaAdapterRef.current?.toggleRaiseHand()}
+                    disabled={classroomSession.participationLocked}
+                  />
+                  {USE_LIVEKIT ? (
+                    <>
+                      <QuestionSignalButton
+                        className={styles.barBtn}
+                        activeClassName={styles.barBtnActive}
+                        hasQuestion={Boolean(localParticipantState?.hasQuestion)}
+                        onToggle={() => mediaAdapterRef.current?.toggleQuestionSignal()}
+                        disabled={classroomSession.participationLocked}
+                      />
+                      <ParticipationIndicators
+                        disabled={classroomSession.participationLocked}
+                        onAck={(kind) => mediaAdapterRef.current?.sendParticipationAck(kind)}
+                      />
+                    </>
+                  ) : null}
                   <button
                     type="button"
                     className={`${styles.barBtn} ${sidebarOpen ? styles.barBtnActive : ''}`}
@@ -743,71 +1020,83 @@ export default function Room() {
             </div>
             <div className={styles.sidebarBody}>
               {sidebarTab === 'participants' && (
-                <>
+                <div className={styles.sidebarScroll}>
+                  {USE_LIVEKIT && mediaSessionActive ? (
+                    <div className={styles.sidebarAttendanceRow}>
+                      <LiveAttendanceBadge active />
+                    </div>
+                  ) : null}
+                  {USE_LIVEKIT && user.role === 'lecturer' && mediaSessionActive ? (
+                    <SessionMetricsPanel participants={participants} />
+                  ) : null}
+                  {USE_LIVEKIT && user.role === 'lecturer' && mediaSessionActive ? (
+                    <LecturerControlsPanel
+                      requests={classroomSession.requests}
+                      participationLocked={classroomSession.participationLocked}
+                      onToggleParticipationLock={handleToggleParticipationLock}
+                      onReclaimPresentation={handleReclaimPresentation}
+                      onRequestDecision={handleModerationRequestDecision}
+                      disabled={!mediaSessionActive}
+                    />
+                  ) : null}
                   {raisedParticipants.length ? (
                     <p className={styles.raiseLine}>
                       Hands raised ({raisedParticipants.length}):
                       {' '}
-                      {raisedParticipants.map((p) => p.name).filter(Boolean).join(', ')}
+                      {raisedParticipants.map((p) => p.name || 'Participant').join(', ')}
                     </p>
                   ) : null}
-                  <ul className={styles.participantList}>
-                    {participants.length === 0 ? (
-                      <li className={styles.emptyList}>No one listed yet.</li>
-                    ) : (
-                      participants.map((p) => {
-                        const roleLine = (() => {
-                          if (p.isLocal && user.role === 'lecturer') return 'Instructor';
-                          if (p.isLocal && user.role === 'student') return 'You';
-                          if (!p.isLocal && p.isModerator) return 'Moderator';
-                          if (!p.isLocal) return 'Participant';
-                          return '';
-                        })();
-                        return (
-                          <li
-                            key={p.id || p.name}
-                            className={[
-                              styles.participantRow,
-                              p.isLocal && styles.participantRowLocal,
-                              p.isDominant && styles.participantRowDominant
-                            ].filter(Boolean).join(' ')}
-                          >
-                            <div>
-                              <div className={styles.participantName}>{p.name || 'Participant'}</div>
-                              <div className={styles.participantMeta}>
-                                {roleLine}
-                                {p.isDominant ? ' · Speaking' : ''}
-                              </div>
-                            </div>
-                            <div className={styles.participantTags}>
-                              {p.raisedHand ? <span className={`${styles.tag} ${styles.tagHand}`}>Hand</span> : null}
-                            </div>
-                          </li>
-                        );
-                      })
-                    )}
-                  </ul>
-                </>
+                  {USE_LIVEKIT && questionParticipants.length ? (
+                    <p className={styles.raiseLine}>
+                      Questions ({questionParticipants.length}):
+                      {' '}
+                      {questionParticipants.map((p) => p.name || 'Participant').join(', ')}
+                    </p>
+                  ) : null}
+                  <ParticipantRoster
+                    participants={participants}
+                    sessionUserRole={user.role}
+                    instructorView={user.role === 'lecturer'}
+                    showModerationActions={USE_LIVEKIT}
+                    moderationDisabled={!mediaSessionActive}
+                    onModerateParticipant={handleModerateParticipant}
+                  />
+                </div>
               )}
               {sidebarTab === 'chat' && (
-                <div className={styles.chatPanel}>
-                  <p className={styles.chatPanelText}>Class chat opens in the meeting view.</p>
-                  <button type="button" className={styles.secondaryCta} onClick={() => execJitsi('toggleChat')}>
-                    Open chat
-                  </button>
+                <div className={styles.sidebarChatHost}>
+                  {USE_LIVEKIT ? (
+                    <div className={styles.chatPanel}>
+                      <ClassroomChatPanel
+                        messages={chatMessages}
+                        localIdentity={localParticipantState?.id != null ? String(localParticipantState.id) : null}
+                        onSend={handleChatSend}
+                        disabled={!mediaSessionActive}
+                      />
+                    </div>
+                  ) : (
+                    <div className={styles.chatPanel}>
+                      <p className={styles.chatPanelText}>Class chat opens in the meeting view.</p>
+                      <button type="button" className={styles.secondaryCta} onClick={() => mediaAdapterRef.current?.openClassroomChat()}>
+                        Open chat
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
               {sidebarTab === 'notes' && (
-                <label className={styles.notesLabel}>
-                  <span className={styles.notesLabelText}>Private notes (this device only)</span>
-                  <textarea
-                    className={styles.notesArea}
-                    value={sessionNotes}
-                    onChange={(e) => setSessionNotes(e.target.value)}
-                    rows={12}
-                    placeholder="Key points, questions to ask…"
-                  />
-                </label>
+                <div className={styles.sidebarScroll}>
+                  <label className={styles.notesLabel}>
+                    <span className={styles.notesLabelText}>Private notes (this device only)</span>
+                    <textarea
+                      className={styles.notesArea}
+                      value={sessionNotes}
+                      onChange={(e) => setSessionNotes(e.target.value)}
+                      rows={12}
+                      placeholder="Key points, questions to ask…"
+                    />
+                  </label>
+                </div>
               )}
             </div>
           </aside>

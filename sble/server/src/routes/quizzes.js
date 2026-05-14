@@ -2,31 +2,18 @@ const router = require('express').Router();
 const keycloak = require('../config/keycloak');
 const { attachUser, requireLecturer, requireStudent, authorizeCourseAccess } = require('../middleware/auth');
 const { Quiz, QuizQuestion, QuizAttempt, User, Course, Enrollment } = require('../models');
+const {
+  getQuizWindow,
+  ensureQuizWindowOpen,
+  gradeQuizAttempt,
+  getAttemptExpiry,
+  computeExpiresAtForAttempt,
+  isAttemptTimeExpired,
+  finalizeAttempt: finalizeAttemptRecord
+} = require('../services/assessment/quizAssessmentService');
+const { validateQuizQuestionsForPublish, totalDurationMinutesFromPayload } = require('../services/assessment/quizIntegrity');
 
 const guard = [keycloak.protect(), attachUser];
-
-const parseOptionalDate = (value, fieldName) => {
-  if (value === undefined || value === null || value === '') return null;
-
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    const err = new Error(`${fieldName} must be a valid date/time`);
-    err.status = 400;
-    throw err;
-  }
-
-  return date;
-};
-
-const resolveDurationMinutes = (value, fallback = 30) => {
-  const parsed = Number.parseInt(value ?? fallback, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    const err = new Error('duration_minutes must be a positive integer');
-    err.status = 400;
-    throw err;
-  }
-  return parsed;
-};
 
 const toDatabaseTimestamp = (date) => {
   if (!date) return null;
@@ -35,108 +22,12 @@ const toDatabaseTimestamp = (date) => {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 };
 
-const getQuizWindow = (quiz, overrides = {}) => {
-  const startTime = parseOptionalDate(
-    overrides.start_time ?? overrides.scheduled_at ?? quiz?.created_at ?? null,
-    'start_time'
-  );
-  const requestedEndTime = parseOptionalDate(overrides.end_time ?? null, 'end_time');
-  const explicitDuration = overrides.duration_minutes ?? overrides.time_limit_minutes;
-
-  if (requestedEndTime && !startTime) {
-    const err = new Error('start_time is required when end_time is provided');
-    err.status = 400;
-    throw err;
-  }
-
-  let durationMinutes = resolveDurationMinutes(
-    explicitDuration ?? quiz?.time_limit_minutes ?? 30,
-    30
-  );
-
-  if (startTime && requestedEndTime) {
-    if (requestedEndTime.getTime() <= startTime.getTime()) {
-      const err = new Error('end_time must be later than start_time');
-      err.status = 400;
-      throw err;
-    }
-
-    if (explicitDuration === undefined || explicitDuration === null || explicitDuration === '') {
-      durationMinutes = Math.max(1, Math.ceil((requestedEndTime.getTime() - startTime.getTime()) / 60000));
-    }
-  }
-
-  const endTime = requestedEndTime || (startTime ? new Date(startTime.getTime() + durationMinutes * 60000) : null);
-  return { startTime, endTime, durationMinutes };
-};
-
 const decorateQuiz = (quiz) => {
   const { startTime, endTime, durationMinutes } = getQuizWindow(quiz);
   quiz.setDataValue('start_time', startTime);
   quiz.setDataValue('end_time', endTime);
   quiz.setDataValue('duration_minutes', durationMinutes);
   return quiz;
-};
-
-const ensureQuizWindowOpen = (quiz) => {
-  const { startTime, endTime } = getQuizWindow(quiz);
-  const now = Date.now();
-
-  if (startTime && now < startTime.getTime()) {
-    const err = new Error('Quiz has not started yet');
-    err.status = 403;
-    throw err;
-  }
-
-  if (endTime && now >= endTime.getTime()) {
-    const err = new Error('Quiz is no longer available');
-    err.status = 403;
-    throw err;
-  }
-};
-
-const normalizeAnswerValue = (value) => String(value ?? '').trim().toLowerCase();
-
-const gradeQuizAttempt = (quiz, answers = {}) => {
-  let score = 0;
-  let totalMarks = 0;
-  const correctAnswers = [];
-  const feedback = [];
-
-  quiz.QuizQuestions?.forEach((question, index) => {
-    const marks = Number(question.marks) || 1;
-    const submittedAnswer = answers?.[question.id] ?? '';
-    const submittedValue = typeof submittedAnswer === 'string' ? submittedAnswer.trim() : submittedAnswer;
-    const correctAnswer = question.correct_answer ?? '';
-    const isCorrect = normalizeAnswerValue(submittedValue) !== ''
-      && normalizeAnswerValue(submittedValue) === normalizeAnswerValue(correctAnswer);
-
-    totalMarks += marks;
-    if (isCorrect) {
-      score += marks;
-    }
-
-    correctAnswers.push({
-      question_id: question.id,
-      question_text: question.question_text,
-      submitted_answer: submittedValue,
-      correct_answer: correctAnswer,
-      is_correct: isCorrect,
-      marks_awarded: isCorrect ? marks : 0,
-      marks_possible: marks
-    });
-
-    feedback.push({
-      question_id: question.id,
-      question_number: index + 1,
-      status: isCorrect ? 'correct' : 'incorrect',
-      message: isCorrect
-        ? `Question ${index + 1}: Correct`
-        : `Question ${index + 1}: Incorrect. Correct answer: ${correctAnswer || 'Not provided'}`
-    });
-  });
-
-  return { score, totalMarks, correctAnswers, feedback };
 };
 
 const normalizeQuestion = (question = {}) => {
@@ -170,45 +61,20 @@ const getLatestAttempt = async (quizId, studentId) => QuizAttempt.findOne({
   order: [['started_at', 'DESC'], ['id', 'DESC']]
 });
 
-const createAttemptRecord = async (quizId, studentId) => {
+const createAttemptRecord = async (quizId, studentId, quizRow) => {
+  const startedAt = new Date();
+  const expiresAt = computeExpiresAtForAttempt(quizRow, startedAt);
   const attempt = await QuizAttempt.create({
     quiz_id: quizId,
     student_id: studentId,
     answers: {},
-    score: 0,
-    submitted_at: null
+    score: null,
+    submitted_at: null,
+    expires_at: expiresAt,
+    status: 'in_progress'
   });
-
-  const startedAt = new Date();
-  await QuizAttempt.sequelize.query(
-    'UPDATE quiz_attempts SET started_at = :startedAt WHERE id = :id',
-    { replacements: { id: attempt.id, startedAt: toDatabaseTimestamp(startedAt) } }
-  );
-  attempt.setDataValue('started_at', startedAt);
-
+  attempt.setDataValue('started_at', attempt.started_at || startedAt);
   return attempt;
-};
-
-const getAttemptExpiry = (attempt, quiz) => {
-  const { durationMinutes, endTime } = getQuizWindow(quiz);
-  const durationExpiry = new Date(new Date(attempt.started_at).getTime() + durationMinutes * 60000);
-
-  if (endTime && endTime.getTime() < durationExpiry.getTime()) {
-    return endTime;
-  }
-
-  return durationExpiry;
-};
-
-const finalizeAttempt = async (attempt, quiz, answers = attempt.answers || {}) => {
-  const grading = gradeQuizAttempt(quiz, answers);
-  await attempt.update({
-    answers,
-    score: grading.score,
-    submitted_at: new Date()
-  });
-
-  return grading;
 };
 
 const serializeAttempt = (attempt) => {
@@ -218,7 +84,9 @@ const serializeAttempt = (attempt) => {
     id: attempt.id,
     score: attempt.score === null || attempt.score === undefined ? null : Number(attempt.score),
     started_at: attempt.started_at,
-    submitted_at: attempt.submitted_at
+    submitted_at: attempt.submitted_at,
+    expires_at: attempt.expires_at,
+    status: attempt.status || (attempt.submitted_at ? 'submitted' : 'in_progress')
   };
 };
 
@@ -246,7 +114,7 @@ const attachStudentAttemptData = async (quizzes, studentId) => {
   for (const quiz of decoratedQuizzes) {
     const attempt = latestByQuiz.get(quiz.id);
     if (attempt && !attempt.submitted_at && Date.now() >= getAttemptExpiry(attempt, quiz).getTime()) {
-      await finalizeAttempt(attempt, quiz, attempt.answers || {});
+      await finalizeAttemptRecord(attempt, quiz, attempt.answers || {});
     }
     quiz.setDataValue('myAttempt', serializeAttempt(attempt || null));
   }
@@ -314,7 +182,8 @@ router.post('/', ...guard, requireLecturer, authorizeCourseAccess(req => req.bod
   try {
     const { course_id, title, questions } = req.body;
     const normalizedQuestions = normalizeQuestions(questions);
-    const { startTime, durationMinutes } = getQuizWindow(null, req.body);
+    const durationMinutes = totalDurationMinutesFromPayload(req.body);
+    const { startTime } = getQuizWindow({ time_limit_minutes: durationMinutes }, req.body);
 
     const quiz = await Quiz.create({
       course_id,
@@ -497,7 +366,7 @@ router.patch('/:id/publish', ...guard, requireLecturer,
     }
     req.quiz = quiz;
     return quiz.course_id;
-  }, { managerOnly: true }), async (req, res) => {
+  }, { managerOnly: true   }), async (req, res) => {
   try {
     const quiz = req.quiz;
     const questionCount = await QuizQuestion.count({ where: { quiz_id: quiz.id } });
@@ -506,7 +375,25 @@ router.patch('/:id/publish', ...guard, requireLecturer,
       return res.status(400).json({ error: 'Quiz must have at least one question before publishing' });
     }
 
-    const { startTime, durationMinutes } = getQuizWindow(quiz, {
+    const questions = await QuizQuestion.findAll({
+      where: { quiz_id: quiz.id },
+      order: [['id', 'ASC']]
+    });
+
+    const integrity = validateQuizQuestionsForPublish(questions);
+    if (!integrity.valid) {
+      return res.status(400).json({
+        error: 'Quiz cannot be published until all integrity checks pass.',
+        validation_errors: integrity.errors
+      });
+    }
+
+    const durationMinutes = totalDurationMinutesFromPayload({
+      ...req.body,
+      time_limit_minutes: req.body?.time_limit_minutes ?? quiz.time_limit_minutes
+    });
+
+    const { startTime } = getQuizWindow({ ...quiz.toJSON(), time_limit_minutes: durationMinutes }, {
       ...req.body,
       start_time: req.body?.start_time ?? req.body?.scheduled_at ?? new Date()
     });
@@ -551,6 +438,8 @@ router.get('/:id/participants', ...guard, requireLecturer,
       score: attempt.score,
       started_at: attempt.started_at,
       submitted_at: attempt.submitted_at,
+      expires_at: attempt.expires_at,
+      status: attempt.status,
       student: attempt.student ? {
         id: attempt.student.id,
         full_name: attempt.student.full_name,
@@ -558,6 +447,59 @@ router.get('/:id/participants', ...guard, requireLecturer,
         student_id: attempt.student.student_id
       } : null
     })));
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+// Autosave in-progress answers (does not submit or grade)
+router.put('/:id/attempt', ...guard, requireStudent,
+  authorizeCourseAccess(async (req) => {
+    const quiz = await Quiz.findByPk(req.params.id, { include: [QuizQuestion] });
+    if (!quiz) {
+      const err = new Error('Quiz not found');
+      err.status = 404;
+      throw err;
+    }
+    req.quiz = quiz;
+    return quiz.course_id;
+  }), async (req, res) => {
+  try {
+    const quiz = decorateQuiz(req.quiz);
+    if (!quiz.is_published) {
+      return res.status(403).json({ error: 'This quiz is not available yet' });
+    }
+
+    let attempt = await getLatestAttempt(quiz.id, req.user.id);
+    if (!attempt || attempt.submitted_at) {
+      return res.status(403).json({ error: 'No active quiz attempt to save' });
+    }
+
+    if (isAttemptTimeExpired(attempt, quiz)) {
+      const grading = await finalizeAttemptRecord(attempt, quiz, attempt.answers || {});
+      return res.status(403).json({
+        error: 'Quiz time has expired; your attempt was submitted automatically.',
+        ...grading,
+        auto_submitted: true
+      });
+    }
+
+    ensureQuizWindowOpen(quiz);
+
+    const incoming = req.body?.answers && typeof req.body.answers === 'object' ? req.body.answers : {};
+    const merged = { ...(attempt.answers || {}), ...incoming };
+    await attempt.update({ answers: merged });
+
+    const expiresAt = attempt.expires_at || getAttemptExpiry(attempt, quiz);
+    const remainingMs = Math.max(0, new Date(expiresAt).getTime() - Date.now());
+
+    res.json({
+      saved: true,
+      attempt: serializeAttempt(attempt),
+      server_time: new Date().toISOString(),
+      attempt_expires_at: expiresAt,
+      seconds_remaining: Math.floor(remainingMs / 1000)
+    });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }
@@ -601,7 +543,7 @@ router.get('/:id', ...guard,
       }
 
       if (attempt && Date.now() >= getAttemptExpiry(attempt, quiz).getTime()) {
-        const grading = await finalizeAttempt(attempt, quiz, attempt.answers || {});
+        const grading = await finalizeAttemptRecord(attempt, quiz, attempt.answers || {});
         return res.status(403).json({
           error: 'Quiz time expired and your attempt was auto-submitted',
           ...grading,
@@ -615,11 +557,16 @@ router.get('/:id', ...guard,
       ensureQuizWindowOpen(quiz);
 
       if (!attempt) {
-        attempt = await createAttemptRecord(quiz.id, req.user.id);
+        attempt = await createAttemptRecord(quiz.id, req.user.id, quiz);
       }
 
       quiz.setDataValue('attempt_id', attempt.id);
       quiz.setDataValue('attempt_started_at', attempt.started_at);
+      quiz.setDataValue('attempt_expires_at', attempt.expires_at || getAttemptExpiry(attempt, quiz));
+      quiz.setDataValue('attempt_status', attempt.status || 'in_progress');
+      quiz.setDataValue('server_time', new Date().toISOString());
+      const rem = Math.max(0, new Date(quiz.getDataValue('attempt_expires_at')).getTime() - Date.now());
+      quiz.setDataValue('seconds_remaining', Math.floor(rem / 1000));
       quiz.QuizQuestions.forEach((q) => { q.correct_answer = undefined; });
     }
 
@@ -666,28 +613,28 @@ router.post('/:id/attempt', ...guard, requireStudent,
 
     if (!attempt) {
       ensureQuizWindowOpen(quiz);
-      attempt = await createAttemptRecord(req.params.id, req.user.id);
+      attempt = await createAttemptRecord(req.params.id, req.user.id, quiz);
     }
 
     const submittedAnswers = req.body?.answers && typeof req.body.answers === 'object'
       ? req.body.answers
       : {};
 
-    const expired = Date.now() >= getAttemptExpiry(attempt, quiz).getTime();
-    const grading = await finalizeAttempt(attempt, quiz, submittedAnswers);
-
-    if (expired) {
+    if (isAttemptTimeExpired(attempt, quiz)) {
+      const grading = await finalizeAttemptRecord(attempt, quiz, submittedAnswers);
       return res.status(403).json({
         error: 'Quiz time expired and your attempt was auto-submitted',
-        attempt,
+        attempt: serializeAttempt(attempt),
         ...grading,
         auto_submitted: true,
         message: `You scored ${grading.score}/${grading.totalMarks}`
       });
     }
 
+    const grading = await finalizeAttemptRecord(attempt, quiz, submittedAnswers);
+
     res.status(201).json({
-      attempt,
+      attempt: serializeAttempt(attempt),
       ...grading,
       auto_graded: true,
       message: `You scored ${grading.score}/${grading.totalMarks}`

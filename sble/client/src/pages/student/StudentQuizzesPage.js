@@ -1,6 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import api from '../../config/api';
+import { getQuizHubStudentSnapshot, resolveCourseAccessMessage } from '../../assessment';
+import {
+  AssessmentShell,
+  AssessmentPageHeader,
+  AssessmentCard,
+  AssessmentMeta,
+  AssessmentAlert,
+  AssessmentEmpty,
+  LinkPrimary,
+  StatusBadge
+} from '../../components/assessment/AssessmentPrimitives';
+import s from '../../components/assessment/AssessmentPrimitives.module.css';
 
 export default function StudentQuizzesPage() {
   const [courses, setCourses] = useState([]);
@@ -23,7 +34,7 @@ export default function StudentQuizzesPage() {
       } catch (err) {
         setCourses([]);
         setQuizzes([]);
-        setError(err?.response?.data?.error || 'Failed to load quizzes.');
+        setError(resolveCourseAccessMessage(err, 'Failed to load quizzes.'));
       } finally {
         setLoading(false);
       }
@@ -42,81 +53,44 @@ export default function StudentQuizzesPage() {
       .filter((entry) => entry.items.length > 0);
   }, [courses, quizzes]);
 
-  if (loading) return <p>Loading quizzes...</p>;
-
   return (
-    <div>
-      <h2>Quizzes</h2>
-      <p style={{ color: '#666', marginTop: 6 }}>Quizzes from all your enrolled courses.</p>
-      {error && <p style={{ color: '#c0392b', marginTop: 12 }}>{error}</p>}
+    <AssessmentShell wide>
+      <AssessmentPageHeader
+        kicker="Learning · quizzes"
+        title="Your quizzes"
+        lead="See availability at a glance. Timed attempts, windows, and scores are managed in each course’s quiz workspace."
+      />
 
-      <div style={{ display: 'grid', gap: 14, marginTop: 18 }}>
+      {error ? <AssessmentAlert type="error">{error}</AssessmentAlert> : null}
+      {loading ? <AssessmentMeta>Loading quizzes…</AssessmentMeta> : null}
+
+      <div className={s.formGrid}>
         {groupedQuizzes.map(({ course, items }) => (
-          <section key={course.id} style={sectionStyle}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <h3 style={{ margin: 0 }}>{course.title}</h3>
-              <Link to={`/student/courses/${course.id}/quizzes`} style={linkButtonStyle}>Open Course Quizzes</Link>
+          <AssessmentCard key={course.id} as="section">
+            <div className={s.cardTitleRow}>
+              <h3 className={s.cardTitle}>{course.title}</h3>
+              <LinkPrimary to={`/student/courses/${course.id}/quizzes`}>Go to course</LinkPrimary>
             </div>
-
-            <ul style={{ listStyle: 'none', padding: 0, marginTop: 12, display: 'grid', gap: 10 }}>
-              {items.map((quiz) => (
-                <li key={quiz.id} style={itemStyle}>
-                  <strong>{quiz.title}</strong>
-                  <div style={{ color: getQuizStatus(quiz).color, fontSize: '0.88rem', marginTop: 6, fontWeight: 600 }}>
-                    {getQuizStatus(quiz).label}
-                  </div>
-                </li>
-              ))}
+            <ul style={{ listStyle: 'none', margin: '0.75rem 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+              {items.map((quiz) => {
+                const st = getQuizHubStudentSnapshot(quiz);
+                return (
+                  <li key={quiz.id} className={s.cardMuted} style={{ borderRadius: 10, padding: '0.65rem 0.75rem', border: '1px solid #e2e8f0' }}>
+                    <p className={s.metaStrong} style={{ margin: 0 }}>{quiz.title}</p>
+                    <div className={s.flexRow} style={{ marginTop: '0.45rem' }}>
+                      <StatusBadge variant={st.badgeVariant}>{st.label}</StatusBadge>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
-          </section>
+          </AssessmentCard>
         ))}
 
-        {!error && groupedQuizzes.length === 0 && (
-          <p style={{ color: '#888' }}>No quizzes found in your enrolled courses.</p>
-        )}
+        {!loading && !error && groupedQuizzes.length === 0 ? (
+          <AssessmentEmpty>No quizzes in your enrolled courses.</AssessmentEmpty>
+        ) : null}
       </div>
-    </div>
+    </AssessmentShell>
   );
 }
-
-function getQuizStatus(quiz) {
-  if (quiz?.myAttempt?.submitted_at) {
-    return {
-      label: Number.isFinite(Number(quiz.myAttempt.score)) ? `Attempt used • Score ${Number(quiz.myAttempt.score)}` : 'Attempt used',
-      color: '#16a34a'
-    };
-  }
-
-  const now = Date.now();
-  const startTime = quiz?.start_time ? new Date(quiz.start_time).getTime() : null;
-  const endTime = quiz?.end_time ? new Date(quiz.end_time).getTime() : null;
-
-  if (startTime && now < startTime) return { label: `Starts ${new Date(startTime).toLocaleString()}`, color: '#b54708' };
-  if (endTime && now >= endTime) return { label: 'Closed', color: '#667085' };
-  return { label: 'Available', color: '#2563eb' };
-}
-
-const sectionStyle = {
-  background: '#fff',
-  borderRadius: 8,
-  padding: 16,
-  boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
-  border: '1px solid #eef2f7'
-};
-
-const itemStyle = {
-  padding: '10px 12px',
-  borderRadius: 8,
-  background: '#f8fafc',
-  border: '1px solid #eef2f7'
-};
-
-const linkButtonStyle = {
-  display: 'inline-flex',
-  textDecoration: 'none',
-  background: '#4f8ef7',
-  color: '#fff',
-  borderRadius: 8,
-  padding: '8px 12px',
-  fontWeight: 600
-};

@@ -1,0 +1,29 @@
+.wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  justify-content: flex-end;
+  max-width: 11rem;
+}
+
+.btn {
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  background: #fff;
+  color: #475569;
+  font-size: 0.62rem;
+  font-weight: 600;
+  padding: 0.12rem 0.35rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: rgba(15, 118, 110, 0.35);
+  color: #0f766e;
+  background: rgba(15, 118, 110, 0.06);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

@@ -1,0 +1,47 @@
+.wrap {
+  position: absolute;
+  left: 0.65rem;
+  bottom: 5.5rem;
+  z-index: 11;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 1.1rem;
+  padding: 0.2rem 0.35rem;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  pointer-events: none;
+}
+
+.wrapWarn .bar {
+  background: rgba(250, 204, 21, 0.85);
+}
+
+.bar {
+  width: 3px;
+  border-radius: 1px;
+  background: rgba(74, 222, 128, 0.9);
+}
+
+.bar:nth-child(1) {
+  height: 35%;
+}
+
+.bar:nth-child(2) {
+  height: 55%;
+}
+
+.bar:nth-child(3) {
+  height: 75%;
+}
+
+.bar:nth-child(4) {
+  height: 100%;
+}
+
+@media (max-width: 520px) {
+  .wrap {
+    bottom: 6.25rem;
+  }
+}

@@ -5,7 +5,7 @@
   min-height: calc(100vh - 100px);
   padding: 0;
   box-sizing: border-box;
-  background: var(--color-bg);
+  background: color-mix(in srgb, var(--color-bg, #f8fafc) 82%, #e2e8f0);
 }
 
 .classroomRoot {
@@ -58,6 +58,24 @@
   flex: 1;
 }
 
+.topBarKicker {
+  margin: 0 0 0.15rem;
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-brand);
+}
+
+.liveRoomTitle {
+  margin: 0;
+  font-size: var(--fs-2);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--color-text);
+  line-height: 1.2;
+}
+
 .classTitle {
   margin: 0;
   font-size: var(--fs-2);
@@ -78,6 +96,11 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 0.35rem;
+}
+
+.hostLine {
+  font-weight: 600;
+  color: var(--color-text);
 }
 
 .muted {
@@ -118,6 +141,28 @@
   border-color: color-mix(in srgb, var(--color-brand) 40%, var(--color-border));
   color: var(--color-brand);
   background: var(--color-brand-soft);
+}
+
+.livePill[data-state="idle"]:empty {
+  min-width: 0.55rem;
+  min-height: 0.55rem;
+  padding: 0.35rem 0.55rem;
+}
+
+.livePill[data-state="idle"]:empty::before {
+  content: '';
+  display: block;
+  width: 6px;
+  height: 6px;
+  margin: 0 auto;
+  border-radius: 999px;
+  background: #94a3b8;
+}
+
+.sidebarAttendanceRow {
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .reconnectHint {
@@ -174,6 +219,17 @@
   min-height: 0;
 }
 
+.moderationNotice {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: #334155;
+  background: rgba(254, 252, 232, 0.95);
+  border-bottom: 1px solid rgba(250, 204, 21, 0.35);
+}
+
 .videoShell {
   flex: 1;
   position: relative;
@@ -199,6 +255,7 @@
   width: 100%;
   position: relative;
   overflow: hidden;
+  isolation: isolate;
 }
 
 .lobbyOverlay {
@@ -441,7 +498,9 @@
 
 .sidebarTabActive {
   color: var(--color-brand);
-  background: var(--color-brand-soft);
+  background: color-mix(in srgb, var(--color-brand-soft) 92%, #ecfdf5);
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-brand) 18%, transparent);
 }
 
 .sidebarClose {
@@ -460,10 +519,27 @@
 
 .sidebarBody {
   flex: 1;
-  overflow: auto;
-  padding: var(--space-4);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: var(--space-3) var(--space-4);
   font-size: var(--fs-0);
   color: var(--color-text-muted);
+}
+
+.sidebarScroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.sidebarChatHost {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .raiseLine {
@@ -549,6 +625,8 @@
 .chatPanel {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
   gap: var(--space-3);
 }
 

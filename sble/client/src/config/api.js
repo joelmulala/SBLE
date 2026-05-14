@@ -1,6 +1,38 @@
 import axios from 'axios';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+const DEFAULT_API_BASE = 'http://localhost:5000/api';
+
+/**
+ * Resolve CRA `REACT_APP_API_URL` to the Express `/api` root.
+ * - Appends `/api` when the env is only an origin (or non-/api path).
+ * - If the value already contains an `/api` path segment (e.g. `.../api/rooms` by mistake),
+ *   collapses to `.../api` so requests stay `.../api/rooms/create` instead of `.../api/rooms/api/...` (404).
+ */
+const normalizeApiBaseUrl = (value) => {
+  const raw = String(value || '').trim().replace(/^\uFEFF/, '');
+  if (!raw) return DEFAULT_API_BASE;
+
+  const noTrail = raw.replace(/\/+$/, '');
+  if (/\/api$/i.test(noTrail)) return noTrail;
+
+  try {
+    const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(noTrail);
+    const u = new URL(hasScheme ? noTrail : `http://${noTrail}`);
+    const parts = u.pathname.split('/').filter(Boolean);
+    const apiIdx = parts.findIndex((p) => p.toLowerCase() === 'api');
+    if (apiIdx !== -1) {
+      const rootPath = `/${parts.slice(0, apiIdx + 1).join('/')}`;
+      const collapsed = `${u.origin}${rootPath}`.replace(/\/+$/, '');
+      return collapsed || DEFAULT_API_BASE;
+    }
+  } catch (_) {
+    /* fall through */
+  }
+
+  return `${noTrail}/api`;
+};
+
+const API_BASE_URL = normalizeApiBaseUrl(process.env.REACT_APP_API_URL);
 const TOKEN_STORAGE_KEY = 'sbleToken';
 
 const api = axios.create({

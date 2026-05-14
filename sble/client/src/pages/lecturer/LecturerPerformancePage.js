@@ -18,6 +18,7 @@ export default function LecturerPerformancePage() {
   const [courses, setCourses] = useState([]);
   const [selectedCourseId, setSelectedCourseId] = useState(courseId || '');
   const [performanceRows, setPerformanceRows] = useState([]);
+  const [assessmentMetrics, setAssessmentMetrics] = useState(null);
   const [coursesLoading, setCoursesLoading] = useState(true);
   const [loading, setLoading] = useState(Boolean(courseId));
   const [error, setError] = useState('');
@@ -46,6 +47,7 @@ export default function LecturerPerformancePage() {
     const loadPerformance = async () => {
       if (!courseId) {
         setPerformanceRows([]);
+        setAssessmentMetrics(null);
         setError('');
         setLoading(false);
         return;
@@ -56,8 +58,10 @@ export default function LecturerPerformancePage() {
       try {
         const res = await api.get(`/courses/${courseId}/performance`);
         setPerformanceRows(Array.isArray(res.data?.performance) ? res.data.performance : []);
+        setAssessmentMetrics(res.data?.assessment_metrics || null);
       } catch (err) {
         setPerformanceRows([]);
+        setAssessmentMetrics(null);
         setError(err?.response?.data?.error || 'Failed to load performance data');
       } finally {
         setLoading(false);
@@ -131,7 +135,7 @@ export default function LecturerPerformancePage() {
           </div>
 
           <div style={{ marginTop: 20 }}>
-            <PerformanceDashboard rows={performanceRows} loading={loading} error={error} />
+            <PerformanceDashboard rows={performanceRows} loading={loading} error={error} assessmentMetrics={assessmentMetrics} />
           </div>
         </>
       )}

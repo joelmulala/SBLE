@@ -16,8 +16,7 @@ const categoryColor = {
   Red: 'var(--color-danger)'
 };
 
-export default function PerformanceDashboard({ rows = [], loading = false, error = '' }) {
-
+export default function PerformanceDashboard({ rows = [], loading = false, error = '', assessmentMetrics = null }) {
   const summary = useMemo(() => {
     const counts = { Green: 0, Orange: 0, Red: 0 };
     rows.forEach((r) => {
@@ -33,9 +32,54 @@ export default function PerformanceDashboard({ rows = [], loading = false, error
     { label: 'Failed', value: summary.Red || 0 }
   ]), [summary]);
 
+  const quizDistribution = useMemo(() => {
+    const m = assessmentMetrics;
+    if (!m || typeof m.quiz_pass_count !== 'number') return null;
+    const pass = m.quiz_pass_count || 0;
+    const fail = m.quiz_fail_count || 0;
+    if (pass + fail === 0) return [{ label: 'No completed attempts', value: 1 }];
+    return [
+      { label: `Pass (≥50%) — ${pass}`, value: pass },
+      { label: `Below 50% — ${fail}`, value: fail }
+    ];
+  }, [assessmentMetrics]);
+
+  const assignmentDistribution = useMemo(() => {
+    const m = assessmentMetrics;
+    if (!m || typeof m.assignment_pass_count !== 'number') return null;
+    const pass = m.assignment_pass_count || 0;
+    const fail = m.assignment_fail_count || 0;
+    if (pass + fail === 0) return [{ label: 'No released grades', value: 1 }];
+    return [
+      { label: `Pass (≥50) — ${pass}`, value: pass },
+      { label: `Below — ${fail}`, value: fail }
+    ];
+  }, [assessmentMetrics]);
+
   return (
     <div>
       <h3>Performance Dashboard</h3>
+
+      {assessmentMetrics && (
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 10 }}>
+          <div style={{ ...panelStyle, padding: '10px 14px' }}>
+            <p style={{ margin: 0, color: 'var(--color-text-muted)', fontSize: '0.82rem' }}>Quiz attempts (submitted)</p>
+            <p style={{ margin: '4px 0 0', fontWeight: 700 }}>{assessmentMetrics.quiz_completed_attempts ?? 0}</p>
+            <p style={{ margin: '6px 0 0', color: 'var(--color-text-muted)', fontSize: '0.78rem' }}>
+              Avg score: {assessmentMetrics.average_quiz_percent != null ? `${assessmentMetrics.average_quiz_percent}%` : '—'}
+            </p>
+          </div>
+          <div style={{ ...panelStyle, padding: '10px 14px' }}>
+            <p style={{ margin: 0, color: 'var(--color-text-muted)', fontSize: '0.82rem' }}>Assignment submissions</p>
+            <p style={{ margin: '4px 0 0', fontWeight: 700 }}>{assessmentMetrics.assignment_submission_rows ?? 0}</p>
+            <p style={{ margin: '6px 0 0', color: 'var(--color-text-muted)', fontSize: '0.78rem' }}>
+              Released grades: {assessmentMetrics.assignment_grades_released ?? 0}
+              {' · '}
+              Avg: {assessmentMetrics.average_released_assignment_grade != null ? assessmentMetrics.average_released_assignment_grade : '—'}
+            </p>
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 10 }}>
         {Object.entries(summary).map(([key, count]) => (
@@ -53,16 +97,16 @@ export default function PerformanceDashboard({ rows = [], loading = false, error
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 1.4fr) repeat(2, minmax(240px, 1fr))', gap: 12, marginTop: 12, alignItems: 'stretch' }}>
             <div style={{ ...panelStyle, height: '100%' }}>
-              <h4 style={{ margin: 0 }}>Exam Performance</h4>
+              <h4 style={{ margin: 0 }}>Weighted learner performance</h4>
               <PerformanceBarChart data={rows} />
             </div>
 
             <div style={{ ...panelStyle, height: '100%' }}>
-              <DistributionPieChart title="Quiz Results" data={distributionData} />
+              <DistributionPieChart title="Quiz pass mix (submitted attempts)" data={quizDistribution || distributionData} />
             </div>
 
             <div style={{ ...panelStyle, height: '100%' }}>
-              <DistributionPieChart title="Assignment Results" data={distributionData} />
+              <DistributionPieChart title="Assignment pass mix (released grades)" data={assignmentDistribution || distributionData} />
             </div>
           </div>
 

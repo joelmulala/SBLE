@@ -1,15 +1,22 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import api from '../../config/api';
 import { buildFileUploadFormData, triggerBlobDownload } from '../../utils/fileTransfer';
-
-const cardStyle = {
-  background: '#fff',
-  borderRadius: 10,
-  padding: 16,
-  boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
-  border: '1px solid #e7ecf5'
-};
+import {
+  AssessmentShell,
+  AssessmentPageHeader,
+  AssessmentCard,
+  AssessmentSectionTitle,
+  AssessmentMeta,
+  AssessmentAlert,
+  AssessmentEmpty,
+  BtnPrimary,
+  Field,
+  TextInput,
+  TextArea,
+  SelectInput,
+  LinkPrimary
+} from '../../components/assessment/AssessmentPrimitives';
+import s from '../../components/assessment/AssessmentPrimitives.module.css';
 
 export default function LecturerAssignmentsPage() {
   const [assignments, setAssignments] = useState([]);
@@ -104,118 +111,128 @@ export default function LecturerAssignmentsPage() {
   };
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <div>
-          <h2 style={{ marginBottom: 6 }}>Assignments</h2>
-          <p style={{ color: '#667085', margin: 0 }}>View assignment summaries and open the course-specific page for submissions.</p>
-        </div>
-        <button type="button" onClick={() => setShowForm((prev) => !prev)} style={actionButtonStyle}>
-          {showForm ? 'Close Form' : 'Create Assignment'}
-        </button>
-      </div>
+    <AssessmentShell wide>
+      <AssessmentPageHeader
+        kicker="Teaching · assignments"
+        title="All assignments"
+        lead="Create briefs from here, then open each course for submissions, grading, and release to students."
+        toolbar={(
+          <BtnPrimary type="button" onClick={() => setShowForm((prev) => !prev)}>
+            {showForm ? 'Close form' : 'Create assignment'}
+          </BtnPrimary>
+        )}
+      />
+
+      {error ? <AssessmentAlert type="error">{error}</AssessmentAlert> : null}
+      {loading ? <AssessmentMeta>Loading assignments…</AssessmentMeta> : null}
 
       {showForm && (
-        <form onSubmit={createAssignment} style={{ ...cardStyle, marginTop: 18, display: 'grid', gap: 10 }}>
-          <select
-            value={form.course_id}
-            onChange={(e) => setForm((prev) => ({ ...prev, course_id: e.target.value }))}
-            required
-            style={inputStyle}
-          >
-            <option value="">Select course</option>
-            {courses.map((course) => (
-              <option key={course.id} value={course.id}>{course.title}</option>
-            ))}
-          </select>
-          <input
-            value={form.title}
-            onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
-            placeholder="Assignment title"
-            required
-            style={inputStyle}
-          />
-          <textarea
-            value={form.description}
-            onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
-            placeholder="Description"
-            rows={3}
-            style={{ ...inputStyle, resize: 'vertical' }}
-          />
-          <input
-            type="datetime-local"
-            value={form.due_date}
-            onChange={(e) => setForm((prev) => ({ ...prev, due_date: e.target.value }))}
-            style={inputStyle}
-          />
-          <div style={{ display: 'grid', gap: 6 }}>
-            <input
-              type="file"
-              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-              onChange={(e) => setAttachment(e.target.files?.[0] || null)}
-            />
-            <span style={{ color: '#667085', fontSize: '0.82rem' }}>
-              Optional: upload the assignment file so students can download it.
-            </span>
-          </div>
-          <button type="submit" disabled={saving} style={actionButtonStyle}>
-            {saving ? 'Saving...' : attachment ? 'Create & Upload Assignment' : 'Create Assignment'}
-          </button>
-        </form>
+        <AssessmentCard>
+          <AssessmentSectionTitle>New assignment</AssessmentSectionTitle>
+          <form onSubmit={createAssignment} className={s.formGrid}>
+            <Field label="Course">
+              <SelectInput
+                value={form.course_id}
+                onChange={(e) => setForm((prev) => ({ ...prev, course_id: e.target.value }))}
+                required
+              >
+                <option value="">Select course</option>
+                {courses.map((course) => (
+                  <option key={course.id} value={course.id}>{course.title}</option>
+                ))}
+              </SelectInput>
+            </Field>
+            <Field label="Title">
+              <TextInput
+                value={form.title}
+                onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
+                placeholder="Assignment title"
+                required
+              />
+            </Field>
+            <Field label="Description">
+              <TextArea
+                value={form.description}
+                onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
+                placeholder="Instructions for students"
+                rows={3}
+              />
+            </Field>
+            <Field label="Due date">
+              <TextInput
+                type="datetime-local"
+                value={form.due_date}
+                onChange={(e) => setForm((prev) => ({ ...prev, due_date: e.target.value }))}
+              />
+            </Field>
+            <div>
+              <input
+                type="file"
+                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                onChange={(e) => setAttachment(e.target.files?.[0] || null)}
+              />
+              <p className={s.inlineHint}>Optional: attach a file students download with the brief.</p>
+            </div>
+            <BtnPrimary type="submit" disabled={saving}>
+              {saving ? 'Saving…' : attachment ? 'Create & upload' : 'Create assignment'}
+            </BtnPrimary>
+          </form>
+        </AssessmentCard>
       )}
 
-      {error && <p style={{ color: '#c0392b', marginTop: 12 }}>{error}</p>}
-      {loading && <p style={{ marginTop: 12 }}>Loading assignments...</p>}
+      <AssessmentSectionTitle>Directory</AssessmentSectionTitle>
 
-      <div style={{ ...cardStyle, marginTop: 18, padding: 0, overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <div className={s.tableScroll}>
+        <table className={s.table}>
           <thead>
             <tr>
-              <th style={headerCellStyle}>Title</th>
-              <th style={headerCellStyle}>Course</th>
-              <th style={headerCellStyle}>Due Date</th>
-              <th style={headerCellStyle}>Attachment</th>
-              <th style={headerCellStyle}>Action</th>
+              <th className={s.th}>Title</th>
+              <th className={s.th}>Course</th>
+              <th className={s.th}>Due</th>
+              <th className={s.th}>Attachment</th>
+              <th className={s.th}>Workflow</th>
             </tr>
           </thead>
           <tbody>
             {assignments.map((assignment) => (
               <tr key={assignment.id}>
-                <td style={cellStyle}>
-                  <div style={{ fontWeight: 600, color: '#111827' }}>{assignment.title}</div>
+                <td className={s.td}>
+                  <span className={s.metaStrong}>{assignment.title}</span>
                 </td>
-                <td style={cellStyle}>{courseNameById[String(assignment.course_id)] || `Course #${assignment.course_id}`}</td>
-                <td style={cellStyle}>{formatDateTime(assignment.due_date)}</td>
-                <td style={cellStyle}>
+                <td className={s.td}>{courseNameById[String(assignment.course_id)] || `Course #${assignment.course_id}`}</td>
+                <td className={s.td}>{formatDateTime(assignment.due_date)}</td>
+                <td className={s.td}>
                   {assignment.file_name ? (
                     <button
                       type="button"
+                      className={s.navLinkSecondary}
                       onClick={() => downloadAssignmentFile(assignment.id, assignment.file_name)}
                       disabled={downloadingId === assignment.id}
-                      style={{ ...secondaryLinkStyle, opacity: downloadingId === assignment.id ? 0.7 : 1 }}
                     >
-                      {downloadingId === assignment.id ? 'Downloading...' : 'Download File'}
+                      {downloadingId === assignment.id ? 'Downloading…' : 'Download'}
                     </button>
                   ) : (
-                    <span style={{ color: '#98a2b3' }}>No file</span>
+                    <span className={s.meta}>No file</span>
                   )}
                 </td>
-                <td style={cellStyle}>
-                  <Link to={`/lecturer/courses/${assignment.course_id}/assignments`} style={primaryLinkStyle}>
-                    Open
-                  </Link>
+                <td className={s.td}>
+                  <LinkPrimary to={`/lecturer/courses/${assignment.course_id}/assignments`}>
+                    Open course workspace
+                  </LinkPrimary>
                 </td>
               </tr>
             ))}
             {!loading && assignments.length === 0 && (
               <tr>
-                <td colSpan={5} style={{ padding: '16px 12px', color: '#888' }}>No assignments available.</td>
+                <td className={s.td} colSpan={5}>
+                  <AssessmentEmpty>No assignments yet.</AssessmentEmpty>
+                </td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
-    </div>
+    </AssessmentShell>
   );
 }
 
@@ -224,65 +241,3 @@ function formatDateTime(value) {
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? 'Not set' : parsed.toLocaleString();
 }
-
-const inputStyle = {
-  width: '100%',
-  padding: '8px 10px',
-  borderRadius: 6,
-  border: '1px solid #ddd'
-};
-
-const actionButtonStyle = {
-  background: '#4f8ef7',
-  color: '#fff',
-  border: 'none',
-  borderRadius: 8,
-  padding: '10px 14px',
-  cursor: 'pointer',
-  fontWeight: 600
-};
-
-const headerCellStyle = {
-  textAlign: 'left',
-  padding: '12px 14px',
-  borderBottom: '1px solid #e5e7eb',
-  color: '#475467',
-  fontSize: '0.85rem',
-  background: '#f8fafc'
-};
-
-const cellStyle = {
-  padding: '12px 14px',
-  borderBottom: '1px solid #f2f4f7',
-  color: '#344054',
-  fontSize: '0.92rem'
-};
-
-const primaryLinkStyle = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  textDecoration: 'none',
-  background: '#4f8ef7',
-  color: '#fff',
-  borderRadius: 8,
-  padding: '8px 12px',
-  minHeight: 38,
-  fontWeight: 600,
-  fontSize: '0.85rem'
-};
-
-const secondaryLinkStyle = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  background: '#eef4ff',
-  color: '#175cd3',
-  borderRadius: 8,
-  padding: '8px 12px',
-  minHeight: 38,
-  fontWeight: 600,
-  fontSize: '0.85rem',
-  border: '1px solid #c7d7fe',
-  cursor: 'pointer'
-};

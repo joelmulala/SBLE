@@ -106,6 +106,28 @@ The `client/.env` file is already configured for localhost — no changes needed
 
 ---
 
+## Optional — LiveKit (future classroom RTC)
+
+For `POST /api/rooms/:roomToken/livekit-token` to issue tokens, add to `server/.env`:
+
+```env
+LIVEKIT_API_KEY=your_api_key
+LIVEKIT_API_SECRET=your_api_secret
+LIVEKIT_WS_URL=wss://your-project.livekit.cloud
+```
+
+Values come from [LiveKit Cloud](https://cloud.livekit.io/) or your self-hosted deployment. If these variables are missing, the API still runs; the token endpoint returns `503` until LiveKit is configured.
+
+To use native SBLE video in the browser, set in `client/.env` (then rebuild the client):
+
+```env
+REACT_APP_CLASSROOM_BACKEND=livekit
+```
+
+The default is `jitsi` (embedded meeting). Changing this requires `npm run build` or `npm start` after saving.
+
+---
+
 ## Step 5 — Install Dependencies
 
 ```bash

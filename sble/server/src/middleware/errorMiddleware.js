@@ -2,6 +2,9 @@ const logger = require('../config/logger');
 
 const notFoundHandler = (req, res, next) => {
   if (!req.path.startsWith('/api')) return next();
+  logger.warn(
+    `[SBLE DEBUG 404 notFoundHandler] ${req.method} originalUrl=${req.originalUrl} path=${req.path} — no matching route; responding Route not found`
+  );
   return res.status(404).json({
     success: false,
     message: 'Route not found',

@@ -28,6 +28,13 @@ const classifyGrade = (finalScore) => {
   return { grade: 'F', status: 'Red', category: 'Red' };
 };
 
+const submissionGradeReleasedForMetrics = (submission) => {
+  if (!submission) return false;
+  if (submission.grading_status === 'published' || submission.results_published_at) return true;
+  if (submission.grade != null && (submission.grading_status == null || submission.grading_status === '')) return true;
+  return false;
+};
+
 const getTrend = (scoredEvents = []) => {
   if (!Array.isArray(scoredEvents) || scoredEvents.length < 2) {
     return 'stable';
@@ -94,7 +101,7 @@ const calculateWeightedPerformance = ({
 
     const assignmentPercentages = assignmentIds.map((assignmentId) => {
       const submission = assignmentLatest.get(`${studentDbId}:${assignmentId}`);
-      if (!submission) return 0;
+      if (!submission || !submissionGradeReleasedForMetrics(submission)) return 0;
       const rawGrade = Number(submission.grade);
       const normalized = Number.isFinite(rawGrade) ? Math.max(0, Math.min(100, rawGrade)) : 0;
       return normalized;
@@ -137,7 +144,7 @@ const calculateWeightedPerformance = ({
     const events = [];
     assignmentIds.forEach((assignmentId) => {
       const submission = assignmentLatest.get(`${studentDbId}:${assignmentId}`);
-      if (submission) {
+      if (submission && submissionGradeReleasedForMetrics(submission)) {
         events.push({
           score: Number(submission.grade) || 0,
           timestamp: submission.last_updated_time || submission.submitted_at
@@ -608,7 +615,7 @@ router.get('/:id/performance', ...guard, requireLecturer,
           COALESCE(SUM(COALESCE(qq.marks, 1)), 0)::numeric AS total_marks
         FROM quizzes q
         LEFT JOIN quiz_questions qq ON qq.quiz_id = q.id
-        WHERE q.course_id = :courseId
+        WHERE q.course_id = :courseId AND q.is_published = true
         GROUP BY q.id
         ORDER BY q.id ASC
       `, { replacements: { courseId } });
@@ -625,8 +632,11 @@ router.get('/:id/performance', ...guard, requireLecturer,
           s.assignment_id,
           s.student_id,
           s.grade,
+          s.feedback,
           s.submitted_at,
-          s.last_updated_time
+          s.last_updated_time,
+          s.grading_status,
+          s.results_published_at
         FROM submissions s
         JOIN assignments a ON a.id = s.assignment_id
         WHERE a.course_id = :courseId
@@ -647,6 +657,7 @@ router.get('/:id/performance', ...guard, requireLecturer,
         FROM quiz_attempts qa
         JOIN quizzes q ON q.id = qa.quiz_id
         WHERE q.course_id = :courseId
+          AND q.is_published = true
           AND qa.submitted_at IS NOT NULL
       `, { replacements: { courseId } });
 
@@ -659,6 +670,40 @@ router.get('/:id/performance', ...guard, requireLecturer,
         quizAttempts
       });
 
+      const releasedSubs = assignmentSubmissions.filter((s) => submissionGradeReleasedForMetrics(s));
+      const releasedGrades = releasedSubs.map((s) => Number(s.grade)).filter((n) => Number.isFinite(n));
+      const quizPctParts = quizAttempts.map((qa) => {
+        const tm = Number(qa.total_marks) || 0;
+        if (tm <= 0) return null;
+        return Math.max(0, Math.min(100, ((Number(qa.score) || 0) / tm) * 100));
+      }).filter((x) => x != null);
+
+      const assessment_metrics = {
+        students_enrolled: students.length,
+        assignments_in_course: assignments.length,
+        published_quizzes_in_course: quizzes.length,
+        assignment_submission_rows: assignmentSubmissions.length,
+        assignment_grades_released: releasedSubs.length,
+        assignment_pass_count: releasedGrades.filter((g) => g >= 50).length,
+        assignment_fail_count: releasedGrades.filter((g) => g < 50).length,
+        average_released_assignment_grade: releasedGrades.length
+          ? Number((releasedGrades.reduce((a, b) => a + b, 0) / releasedGrades.length).toFixed(2))
+          : null,
+        quiz_completed_attempts: quizAttempts.length,
+        quiz_pass_count: quizPctParts.filter((g) => g >= 50).length,
+        quiz_fail_count: quizPctParts.filter((g) => g < 50).length,
+        average_quiz_percent: quizPctParts.length
+          ? Number((quizPctParts.reduce((a, b) => a + b, 0) / quizPctParts.length).toFixed(2))
+          : null,
+        assignment_pass_rate_percent: releasedGrades.length
+          ? Number(((releasedGrades.filter((g) => g >= 50).length / releasedGrades.length) * 100).toFixed(2))
+          : null,
+        quiz_pass_rate_percent: quizPctParts.length
+          ? Number(((quizPctParts.filter((g) => g >= 50).length / quizPctParts.length) * 100).toFixed(2))
+          : null
+      };
+
+      const enrichedPayload = { ...performancePayload, assessment_metrics };
       // Keep optional integration hook: if the service is reachable and supports
       // this payload shape, it may post-process further. Otherwise return Node.js result.
       try {
@@ -667,7 +712,7 @@ router.get('/:id/performance', ...guard, requireLecturer,
         const response = await fetch(PERFORMANCE_SERVICE_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(performancePayload),
+          body: JSON.stringify(enrichedPayload),
           signal: controller.signal
         });
         clearTimeout(timeoutId);
@@ -677,7 +722,7 @@ router.get('/:id/performance', ...guard, requireLecturer,
           if (contentType.includes('application/json')) {
             const serviceData = await response.json();
             if (Array.isArray(serviceData?.performance)) {
-              return res.json(serviceData);
+              return res.json({ ...serviceData, assessment_metrics });
             }
           }
         }
@@ -685,7 +730,7 @@ router.get('/:id/performance', ...guard, requireLecturer,
         logger.error(`Performance service unavailable, returning Node.js analytics: ${serviceError.message}`);
       }
 
-      return res.json(performancePayload);
+      return res.json(enrichedPayload);
     } catch (err) {
       res.status(err.status || 500).json({ error: err.message });
     }
