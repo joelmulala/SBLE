@@ -23,14 +23,22 @@ export default function ClassroomStageLayout({
   sidebarOpen = false,
   presenceByIdentity = {}
 }) {
-  if (!room || !participants?.length) {
+  if (!room) {
+    return null;
+  }
+
+  const roster = participants?.length
+    ? participants
+    : (room.localParticipant ? [room.localParticipant] : []);
+
+  if (!roster.length) {
     return null;
   }
 
   const signalsFor = (identity) => presenceByIdentity[identity] || {};
 
-  if (participants.length === 1) {
-    const p = participants[0];
+  if (roster.length === 1) {
+    const p = roster[0];
     return (
       <div className={styles.cinema} data-sidebar={sidebarOpen ? 'open' : 'closed'}>
         <ParticipantTile
@@ -45,10 +53,10 @@ export default function ClassroomStageLayout({
     );
   }
 
-  const spotlight = spotlightId ? participants.find((x) => x.identity === spotlightId) : null;
+  const spotlight = spotlightId ? roster.find((x) => x.identity === spotlightId) : null;
   const others = spotlight
-    ? participants.filter((x) => x.identity !== spotlight.identity)
-    : participants;
+    ? roster.filter((x) => x.identity !== spotlight.identity)
+    : roster;
 
   if (spotlight && others.length) {
     return (
@@ -79,7 +87,7 @@ export default function ClassroomStageLayout({
   return (
     <ParticipantDock
       room={room}
-      participants={participants}
+      participants={roster}
       primarySpeakerId={primarySpeakerId}
       layout="grid"
       emphasizeLecturer={false}

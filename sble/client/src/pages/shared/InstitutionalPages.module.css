@@ -1,0 +1,152 @@
+.tableWrap {
+  overflow-x: auto;
+  margin-top: var(--space-5);
+}
+
+.gradeTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-0);
+}
+
+.gradeTable th,
+.gradeTable td {
+  border-bottom: 1px solid var(--color-border);
+  padding: var(--space-3) var(--space-3);
+  text-align: left;
+  vertical-align: top;
+}
+
+.gradeTable th {
+  font-size: var(--fs-00);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.subMeta {
+  font-size: var(--fs-00);
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+.muted {
+  color: var(--color-text-faint);
+}
+
+.calendarList {
+  list-style: none;
+  margin: var(--space-5) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.calendarItem {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  background: var(--color-surface);
+}
+
+.calendarDate {
+  min-width: 4.5rem;
+  text-align: center;
+  font-weight: 700;
+  color: var(--color-brand);
+}
+
+.calendarBody h3 {
+  margin: 0 0 var(--space-1);
+  font-size: var(--fs-2);
+}
+
+.calendarMeta {
+  margin: 0;
+  font-size: var(--fs-0);
+  color: var(--color-text-muted);
+}
+
+.typeAssignment { border-left: 3px solid #28a745; }
+.typeExam { border-left: 3px solid #dc3545; }
+.typeLive { border-left: 3px solid #7c3aed; }
+
+.rowSelected {
+  background: var(--color-brand-soft);
+}
+
+.linkBtn {
+  border: none;
+  background: none;
+  color: var(--color-brand);
+  font-weight: 600;
+  cursor: pointer;
+  font-size: var(--fs-0);
+  padding: 0;
+}
+
+.linkBtn:hover {
+  text-decoration: underline;
+}
+
+.cellWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+}
+
+.categoryBlock {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.categoryTitle {
+  margin: 0 0 var(--space-3);
+  font-size: var(--fs-2);
+}
+
+.categoryList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.categoryItem {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-muted);
+}
+
+.categoryRight {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--fs-0);
+}
+
+.feedback {
+  margin: var(--space-2) 0 0;
+  font-size: var(--fs-0);
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.communicationsStack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}

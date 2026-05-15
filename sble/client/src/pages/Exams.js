@@ -3,6 +3,21 @@ import { useParams } from 'react-router-dom';
 import { useKeycloak } from '../auth/AuthProvider';
 import api from '../config/api';
 import { buildFileUploadFormData, triggerBlobDownload } from '../utils/fileTransfer';
+import {
+  AssessmentShell,
+  AssessmentPageHeader,
+  AssessmentCard,
+  AssessmentSectionTitle,
+  AssessmentAlert,
+  AssessmentEmpty,
+  AssessmentMeta,
+  BtnPrimary,
+  BtnSecondary,
+  Field,
+  TextInput,
+  StatusBadge
+} from '../components/assessment/AssessmentPrimitives';
+import CoursePageFrame from '../components/workspace/CoursePageFrame';
 
 export default function Exams() {
   const { courseId } = useParams();
@@ -13,15 +28,22 @@ export default function Exams() {
   const [file, setFile] = useState(null);
   const [form, setForm] = useState({ title: '', scheduled_at: '', duration_minutes: 120 });
   const [uploading, setUploading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    api.get(`/exams/course/${courseId}`).then(r => setExams(r.data)).catch(() => {});
+    setLoading(true);
+    api.get(`/exams/course/${courseId}`)
+      .then((r) => setExams(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setExams([]))
+      .finally(() => setLoading(false));
   }, [courseId]);
 
   const uploadExam = async (e) => {
     e.preventDefault();
     if (!file) return;
     setUploading(true);
+    setError('');
     const fd = buildFileUploadFormData({
       file,
       courseId,
@@ -33,9 +55,11 @@ export default function Exams() {
     });
     try {
       const res = await api.post('/exams/upload', fd);
-      setExams(prev => [...prev, res.data]);
+      setExams((prev) => [...prev, res.data]);
       setForm({ title: '', scheduled_at: '', duration_minutes: 120 });
       setFile(null);
+    } catch (err) {
+      setError(err?.response?.data?.error || 'Upload failed');
     } finally {
       setUploading(false);
     }
@@ -43,7 +67,7 @@ export default function Exams() {
 
   const releaseExam = async (examId) => {
     await api.patch(`/exams/${examId}/release`);
-    setExams(prev => prev.map(ex => ex.id === examId ? { ...ex, is_released: true } : ex));
+    setExams((prev) => prev.map((ex) => (ex.id === examId ? { ...ex, is_released: true } : ex)));
   };
 
   const downloadExam = async (examId, title) => {
@@ -51,65 +75,87 @@ export default function Exams() {
       const response = await api.get(`/exams/${examId}/download`, { responseType: 'blob' });
       triggerBlobDownload(response, `${title || `exam-${examId}`}.pdf`);
     } catch (_) {
-      alert('Download failed');
+      setError('Download failed');
     }
   };
 
   return (
-    <div>
-      <h2>Exams</h2>
+    <AssessmentShell>
+      <CoursePageFrame courseId={courseId} pageTitle="Exams">
+        <AssessmentPageHeader
+          kicker={isLecturer ? 'Course delivery' : 'Course study'}
+          title="Exams"
+          lead="Scheduled examinations and release windows for this course."
+        />
 
-      {isLecturer && (
-        <form onSubmit={uploadExam} style={{ marginTop: 20, background: '#fff', padding: 20, borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.07)', maxWidth: 480, display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <h3 style={{ marginBottom: 4 }}>Upload Exam Paper</h3>
-          <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Exam title" required
-            style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #ddd' }} />
-          <label style={{ fontSize: '0.85rem', color: '#666' }}>Scheduled date &amp; time</label>
-          <input type="datetime-local" value={form.scheduled_at} onChange={e => setForm({ ...form, scheduled_at: e.target.value })}
-            style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #ddd' }} />
-          <input type="number" value={form.duration_minutes} onChange={e => setForm({ ...form, duration_minutes: e.target.value })}
-            placeholder="Duration (minutes)" style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #ddd' }} />
-          <input type="file" accept=".pdf" onChange={e => setFile(e.target.files[0])} required />
-          <button type="submit" disabled={uploading}
-            style={{ background: '#4f8ef7', color: '#fff', padding: '10px', borderRadius: 6, border: 'none', cursor: 'pointer' }}>
-            {uploading ? 'Uploading...' : 'Upload Exam Paper'}
-          </button>
-        </form>
-      )}
+        {loading ? <AssessmentMeta>Loading exams...</AssessmentMeta> : null}
+        {error ? <AssessmentAlert>{error}</AssessmentAlert> : null}
 
-      <ul style={{ marginTop: 24, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {exams.map(ex => (
-          <li key={ex.id} style={{ background: '#fff', padding: 16, borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.07)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <strong>{ex.title}</strong>
-              {ex.scheduled_at && (
-                <p style={{ color: '#888', fontSize: '0.85rem', marginTop: 4 }}>
-                  Scheduled: {new Date(ex.scheduled_at).toLocaleString()}
-                  {' · '}{ex.duration_minutes} min
-                </p>
-              )}
-              <span style={{ fontSize: '0.8rem', color: ex.is_released ? '#28a745' : '#e67e22', fontWeight: 600 }}>
-                {ex.is_released ? 'Released' : 'Locked'}
-              </span>
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              {isLecturer && !ex.is_released && (
-                <button onClick={() => releaseExam(ex.id)}
-                  style={{ background: '#28a745', color: '#fff', padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer' }}>
-                  Release
-                </button>
-              )}
-              {(ex.is_released || isLecturer) && (
-                <button onClick={() => downloadExam(ex.id, ex.title)}
-                  style={{ background: '#4f8ef7', color: '#fff', padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer' }}>
-                  Download
-                </button>
-              )}
-            </div>
-          </li>
-        ))}
-        {exams.length === 0 && <p style={{ color: '#888', marginTop: 16 }}>No exams uploaded yet.</p>}
-      </ul>
-    </div>
+        {isLecturer ? (
+          <AssessmentCard>
+            <AssessmentSectionTitle>Upload exam paper</AssessmentSectionTitle>
+            <form onSubmit={uploadExam} style={{ display: 'grid', gap: 'var(--space-4)' }}>
+              <Field label="Title">
+                <TextInput value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
+              </Field>
+              <Field label="Scheduled">
+                <TextInput type="datetime-local" value={form.scheduled_at} onChange={(e) => setForm({ ...form, scheduled_at: e.target.value })} />
+              </Field>
+              <Field label="Duration (minutes)">
+                <TextInput type="number" value={form.duration_minutes} onChange={(e) => setForm({ ...form, duration_minutes: e.target.value })} />
+              </Field>
+              <Field label="PDF file">
+                <input type="file" accept=".pdf" onChange={(e) => setFile(e.target.files?.[0] || null)} required />
+              </Field>
+              <BtnPrimary type="submit" disabled={uploading}>{uploading ? 'Uploading...' : 'Upload exam'}</BtnPrimary>
+            </form>
+          </AssessmentCard>
+        ) : null}
+
+        {!loading && exams.length === 0 ? (
+          <AssessmentEmpty>No exams scheduled yet.</AssessmentEmpty>
+        ) : (
+          <AssessmentCard>
+            <AssessmentSectionTitle>Exams</AssessmentSectionTitle>
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+              {exams.map((ex) => (
+                <li
+                  key={ex.id}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 'var(--space-3)',
+                    padding: 'var(--space-3)',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 'var(--radius-md)'
+                  }}
+                >
+                  <div>
+                    <strong>{ex.title}</strong>
+                    {ex.scheduled_at ? (
+                      <AssessmentMeta>
+                        {new Date(ex.scheduled_at).toLocaleString()} · {ex.duration_minutes} min
+                      </AssessmentMeta>
+                    ) : null}
+                    <StatusBadge variant={ex.is_released ? 'success' : 'warning'}>
+                      {ex.is_released ? 'Released' : 'Locked'}
+                    </StatusBadge>
+                  </div>
+                  <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+                    {isLecturer && !ex.is_released ? (
+                      <BtnSecondary type="button" onClick={() => releaseExam(ex.id)}>Release</BtnSecondary>
+                    ) : null}
+                    {(ex.is_released || isLecturer) ? (
+                      <BtnPrimary type="button" onClick={() => downloadExam(ex.id, ex.title)}>Download</BtnPrimary>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </AssessmentCard>
+        )}
+      </CoursePageFrame>
+    </AssessmentShell>
   );
 }

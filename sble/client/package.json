@@ -3,9 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "dependencies": {
-    "@react-keycloak/web": "^3.4.0",
     "axios": "^1.6.0",
-    "keycloak-js": "^23.0.0",
     "livekit-client": "^2.19.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -14,7 +12,8 @@
   },
   "scripts": {
     "start": "react-scripts start",
-    "build": "react-scripts build"
+    "build": "react-scripts build",
+    "build:production": "react-scripts build"
   },
   "browserslist": {
     "production": [

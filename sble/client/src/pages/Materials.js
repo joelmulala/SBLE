@@ -3,6 +3,19 @@ import { useParams } from 'react-router-dom';
 import { useKeycloak } from '../auth/AuthProvider';
 import api from '../config/api';
 import { buildFileUploadFormData, triggerBlobDownload } from '../utils/fileTransfer';
+import {
+  AssessmentShell,
+  AssessmentPageHeader,
+  AssessmentCard,
+  AssessmentSectionTitle,
+  AssessmentAlert,
+  AssessmentEmpty,
+  AssessmentMeta,
+  BtnPrimary,
+  Field,
+  TextInput
+} from '../components/assessment/AssessmentPrimitives';
+import CoursePageFrame from '../components/workspace/CoursePageFrame';
 
 export default function Materials() {
   const { courseId } = useParams();
@@ -54,11 +67,7 @@ export default function Materials() {
     if (!file || !title || !courseId) return;
     setUploading(true);
     setError('');
-    const form = buildFileUploadFormData({
-      file,
-      courseId,
-      title
-    });
+    const form = buildFileUploadFormData({ file, courseId, title });
     try {
       const res = await api.post('/materials/upload', form);
       setMaterials((prev) => [res.data, ...prev]);
@@ -76,52 +85,72 @@ export default function Materials() {
       const response = await api.get(`/materials/${materialId}/download`, { responseType: 'blob' });
       triggerBlobDownload(response, fileName || `material-${materialId}`);
     } catch (_) {
-      alert('Download failed');
+      setError('Download failed.');
     }
   };
 
   return (
-    <div className="app-page">
-      <div className="app-container app-stack">
-      <section className="app-surface">
-        <div className="app-surface-body">
-          <p className="app-kicker">{isLecturer ? 'Course Delivery' : 'Course Study'}</p>
-          <h1 className="page-title" style={{ marginTop: '0.35rem' }}>Learning Materials</h1>
-        </div>
-      </section>
-      {loading && <p className="app-meta">Loading materials...</p>}
-      {error && <p style={{ color: '#c0392b' }}>{error}</p>}
+    <AssessmentShell>
+      <CoursePageFrame courseId={courseId} pageTitle="Materials">
+        <AssessmentPageHeader
+          kicker={isLecturer ? 'Course delivery' : 'Course study'}
+          title="Learning materials"
+          lead="Course readings and files organized with your learning path."
+        />
 
-      {isLecturer && (
-        <form onSubmit={handleUpload} className="app-surface app-surface-body" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Material title" required
-            style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #ddd', flex: 1 }} />
-          <input type="file" accept=".pdf,.doc,.docx,.jpg,.png" onChange={(e) => setFile(e.target.files?.[0] || null)} required />
-          <button type="submit" disabled={uploading}
-            style={{ background: '#4f8ef7', color: '#fff', padding: '8px 20px', borderRadius: 6, border: 'none', cursor: 'pointer' }}>
-            {uploading ? 'Uploading...' : 'Upload'}
-          </button>
-        </form>
-      )}
+        {loading ? <AssessmentMeta>Loading materials...</AssessmentMeta> : null}
+        {error ? <AssessmentAlert>{error}</AssessmentAlert> : null}
 
-      <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10, padding: 0 }}>
-        {materials.map((material) => (
-          <li key={material.id} className="app-surface app-surface-body" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-            <div>
-              <strong>{material.file_name || material.title}</strong>
-              <p style={{ color: '#666', marginTop: 4 }}>{material.title}</p>
-              <p style={{ color: '#98a2b3', fontSize: '0.82rem', marginTop: 4 }}>
-                Uploaded: {material.created_at ? new Date(material.created_at).toLocaleString() : 'Unknown date'}
-              </p>
-            </div>
-            <button onClick={() => downloadMaterial(material.id, material.file_name)}
-              style={{ color: '#4f8ef7', fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer' }}>Download</button>
-          </li>
-        ))}
-        {!loading && materials.length === 0 && <p style={{ color: '#888' }}>No materials uploaded yet.</p>}
-      </ul>
-      </div>
-    </div>
+        {isLecturer && courseId ? (
+          <AssessmentCard>
+            <AssessmentSectionTitle>Upload material</AssessmentSectionTitle>
+            <form onSubmit={handleUpload} style={{ display: 'grid', gap: 'var(--space-4)' }}>
+              <Field label="Title">
+                <TextInput value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Material title" required />
+              </Field>
+              <Field label="File">
+                <input type="file" accept=".pdf,.doc,.docx,.jpg,.png" onChange={(e) => setFile(e.target.files?.[0] || null)} required />
+              </Field>
+              <BtnPrimary type="submit" disabled={uploading}>{uploading ? 'Uploading...' : 'Upload'}</BtnPrimary>
+            </form>
+          </AssessmentCard>
+        ) : null}
+
+        {!loading && materials.length === 0 ? (
+          <AssessmentEmpty>No materials uploaded yet.</AssessmentEmpty>
+        ) : (
+          <AssessmentCard>
+            <AssessmentSectionTitle>Materials</AssessmentSectionTitle>
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+              {materials.map((material) => (
+                <li
+                  key={material.id}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 'var(--space-3)',
+                    padding: 'var(--space-3)',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 'var(--radius-md)'
+                  }}
+                >
+                  <div>
+                    <strong>{material.title || material.file_name}</strong>
+                    <AssessmentMeta>
+                      {material.created_at ? new Date(material.created_at).toLocaleString() : ''}
+                    </AssessmentMeta>
+                  </div>
+                  <BtnPrimary type="button" onClick={() => downloadMaterial(material.id, material.file_name)}>
+                    Download
+                  </BtnPrimary>
+                </li>
+              ))}
+            </ul>
+          </AssessmentCard>
+        )}
+      </CoursePageFrame>
+    </AssessmentShell>
   );
 }
 

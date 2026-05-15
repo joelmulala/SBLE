@@ -22,33 +22,19 @@ export default function Layout() {
   const lecturerNavItems = [
     {
       to: '/lecturer/courses',
-      label: 'Courses',
+      label: 'My courses',
       end: true,
-      matchRoutes: [/^\/lecturer\/courses\/[^/]+(?:\/)?$/]
+      matchRoutes: [/^\/lecturer\/courses\/[^/]+/]
     },
     {
-      to: '/lecturer/materials',
-      label: 'Materials',
-      matchRoutes: [/^\/lecturer\/courses\/[^/]+\/materials(?:\/)?$/]
+      to: '/lecturer/calendar',
+      label: 'Calendar',
+      matchRoutes: [/^\/lecturer\/calendar(?:\/)?$/]
     },
     {
-      to: '/lecturer/assignments',
-      label: 'Assignments',
-      matchRoutes: [/^\/lecturer\/courses\/[^/]+\/assignments(?:\/)?$/]
-    },
-    {
-      to: '/lecturer/quizzes',
-      label: 'Quizzes',
-      matchRoutes: [
-        '/lecturer/exams',
-        /^\/lecturer\/courses\/[^/]+\/quizzes(?:\/)?$/,
-        /^\/lecturer\/courses\/[^/]+\/exams(?:\/)?$/
-      ]
-    },
-    {
-      to: '/lecturer/performance',
-      label: 'Performance',
-      matchRoutes: [/^\/lecturer\/courses\/[^/]+\/performance(?:\/)?$/]
+      to: '/lecturer/gradebook',
+      label: 'Gradebook',
+      matchRoutes: [/^\/lecturer\/gradebook(?:\/)?$/, /^\/lecturer\/courses\/[^/]+\/gradebook(?:\/)?$/]
     }
   ];
 
@@ -60,11 +46,37 @@ export default function Layout() {
     dismiss(liveClassNotification.id);
   };
 
+  const communicationsPath = (courseId) => {
+    if (!courseId) return null;
+    const prefix = isLecturer ? '/lecturer' : '/student';
+    return `${prefix}/courses/${courseId}/communications`;
+  };
+
+  const handleNotificationOpen = (notification) => {
+    if (!notification) return;
+    const courseId = notification.courseId || notification.course_id;
+    if (
+      notification.type === 'announcement'
+      || notification.type === 'discussion_reply'
+    ) {
+      const path = communicationsPath(courseId);
+      if (path) navigate(path);
+    } else if (notification.roomId || notification.room_id) {
+      const roomId = notification.roomId || notification.room_id;
+      navigate(`/room/${encodeURIComponent(roomId)}`);
+    }
+    dismiss(notification.id);
+    setShowNotifs(false);
+  };
+
   const sectionTitle = resolveSectionTitle(location.pathname);
 
   return (
     <div className={`${styles.shell} ${roleThemeClass}`}>
-      <nav className={styles.sidebar}>
+      <a href="#main-content" className={styles.skipLink}>
+        Skip to main content
+      </a>
+      <nav className={styles.sidebar} aria-label="Primary navigation">
         <div className={styles.sidebarScrollable}>
           <div className={styles.logoWrap}>
             <div className={styles.logo}>SBLE</div>
@@ -86,10 +98,9 @@ export default function Layout() {
             </SidebarGroup>
           ) : (
             <SidebarGroup label="ACADEMIC">
-              <NavItem to="/student/courses" end matchRoutes={[/^\/student\/courses\/[^/]+(?:\/)?$/]}>Courses</NavItem>
-              <NavItem to="/student/materials" end matchRoutes={[/^\/student\/courses\/[^/]+\/materials(?:\/)?$/]}>Materials</NavItem>
-              <NavItem to="/student/assignments" end matchRoutes={[/^\/student\/courses\/[^/]+\/assignments(?:\/)?$/]}>Assignments</NavItem>
-              <NavItem to="/student/quizzes" end matchRoutes={[/^\/student\/courses\/[^/]+\/quizzes(?:\/)?$/]}>Quizzes</NavItem>
+              <NavItem to="/student/courses" end matchRoutes={[/^\/student\/courses\/[^/]+/]}>My courses</NavItem>
+              <NavItem to="/student/calendar" end>Calendar</NavItem>
+              <NavItem to="/student/gradebook" end matchRoutes={[/^\/student\/gradebook(?:\/)?$/, /^\/student\/courses\/[^/]+\/gradebook(?:\/)?$/]}>Gradebook</NavItem>
             </SidebarGroup>
           )}
 
@@ -100,7 +111,7 @@ export default function Layout() {
           )}
         </div>
 
-        <button className={styles.logout} onClick={() => keycloak.logout()}>Logout</button>
+        <button type="button" className={styles.logout} onClick={() => keycloak.logout()}>Logout</button>
       </nav>
 
       <div className={styles.mainPanel}>
@@ -130,9 +141,16 @@ export default function Layout() {
           <div className={styles.popover}>
             <p className={styles.popoverTitle}>Notifications</p>
             {notifications.length === 0 && <p className={styles.emptyState}>No new notifications</p>}
-            {notifications.map(n => (
+            {notifications.map((n) => (
               <div key={n.id} className={styles.notifItem}>
-                <p className={styles.notifMessage}>{n.message || n.title}</p>
+                <button
+                  type="button"
+                  className={styles.notifMessage}
+                  onClick={() => handleNotificationOpen(n)}
+                  style={{ background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', padding: 0, width: '100%' }}
+                >
+                  {n.message || n.title}
+                </button>
                 <button onClick={() => dismiss(n.id)} className={styles.dismissButton} type="button">×</button>
               </div>
             ))}
@@ -162,7 +180,7 @@ export default function Layout() {
           </div>
         )}
 
-        <main className={styles.content}>
+        <main id="main-content" className={styles.content} tabIndex={-1}>
           <Outlet />
         </main>
       </div>
@@ -208,7 +226,12 @@ function NavItem({ to, children, end = false, matchRoutes = [] }) {
   const isActive = (isPrimaryPathActive || isMatchedRouteActive) && isHashActive;
 
   return (
-    <NavLink to={to} end={end} className={`${styles.navLink} ${isActive ? styles.active : ''}`}>
+    <NavLink
+      to={to}
+      end={end}
+      className={`${styles.navLink} ${isActive ? styles.active : ''}`}
+      aria-current={isActive ? 'page' : undefined}
+    >
       {children}
     </NavLink>
   );
@@ -216,12 +239,16 @@ function NavItem({ to, children, end = false, matchRoutes = [] }) {
 
 function resolveSectionTitle(pathname) {
   if (pathname.includes('/dashboard')) return 'Dashboard';
+  if (pathname.match(/\/courses\/[^/]+$/)) return 'Course home';
   if (pathname.includes('/courses')) return 'Courses';
   if (pathname.includes('/materials')) return 'Materials';
   if (pathname.includes('/assignments')) return 'Assignments';
   if (pathname.includes('/quizzes')) return 'Quizzes';
   if (pathname.includes('/exams')) return 'Exams';
   if (pathname.includes('/performance')) return 'Performance';
+  if (pathname.includes('/gradebook')) return 'Gradebook';
+  if (pathname.includes('/calendar')) return 'Calendar';
+  if (pathname.includes('/communications')) return 'Communication';
   if (pathname.includes('/enrollment')) return 'Enrollment';
   if (pathname.includes('/room')) return 'Live Classroom';
   if (pathname.includes('/users')) return 'User Management';

@@ -1,0 +1,9 @@
+**/.git
+**/.env
+**/.env.*
+**/node_modules
+**/uploads
+**/*.md
+client/node_modules
+server/node_modules
+server/uploads

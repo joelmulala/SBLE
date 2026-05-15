@@ -3,17 +3,12 @@
  * Used by quiz routes and the quiz timer job.
  */
 
+const { QuizAttempt } = require('../../models');
+const { parseDbDate } = require('../../utils/datetime');
+
 const parseOptionalDate = (value, fieldName) => {
   if (value === undefined || value === null || value === '') return null;
-
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    const err = new Error(`${fieldName} must be a valid date/time`);
-    err.status = 400;
-    throw err;
-  }
-
-  return date;
+  return parseDbDate(value, fieldName);
 };
 
 const resolveDurationMinutes = (value, fallback = 30) => {
@@ -123,40 +118,73 @@ const gradeQuizAttempt = (quiz, answers = {}) => {
 };
 
 const getAttemptExpiry = (attempt, quiz) => {
-  if (attempt?.expires_at) {
-    return new Date(attempt.expires_at);
-  }
+  const started = new Date(attempt.started_at || Date.now());
   const { durationMinutes, endTime } = getQuizWindow(quiz);
-  const started = new Date(attempt.started_at);
   const durationExpiry = new Date(started.getTime() + durationMinutes * 60000);
 
-  if (endTime && endTime.getTime() < durationExpiry.getTime()) {
-    return endTime;
+  let candidate = durationExpiry;
+  if (endTime && endTime.getTime() > started.getTime()) {
+    candidate = new Date(Math.min(durationExpiry.getTime(), endTime.getTime()));
+  }
+
+  if (attempt?.expires_at) {
+    const stored = new Date(attempt.expires_at);
+    if (stored.getTime() > started.getTime()) {
+      return new Date(Math.min(candidate.getTime(), stored.getTime()));
+    }
+  }
+
+  return candidate;
+};
+
+const computeExpiresAtForAttempt = (quiz, startedAt) => {
+  const start = startedAt instanceof Date ? startedAt : new Date(startedAt);
+  const { durationMinutes } = getQuizWindow(quiz);
+  const durationExpiry = new Date(start.getTime() + durationMinutes * 60000);
+  const { endTime } = getQuizWindow(quiz);
+
+  if (endTime && endTime.getTime() > start.getTime()) {
+    return new Date(Math.min(durationExpiry.getTime(), endTime.getTime()));
   }
 
   return durationExpiry;
 };
 
-const computeExpiresAtForAttempt = (quiz, startedAt) => {
-  const start = startedAt instanceof Date ? startedAt : new Date(startedAt);
-  return getAttemptExpiry({ started_at: start, expires_at: null }, quiz);
-};
-
 const isAttemptTimeExpired = (attempt, quiz) => Date.now() >= getAttemptExpiry(attempt, quiz).getTime();
 
 const finalizeAttempt = async (attempt, quiz, answers = attempt.answers || {}) => {
+  if (attempt.submitted_at) {
+    const grading = gradeQuizAttempt(quiz, attempt.answers || answers);
+    return { grading, status: attempt.status || 'submitted', alreadyFinalized: true };
+  }
+
   const grading = gradeQuizAttempt(quiz, answers);
   const expiredByClock = isAttemptTimeExpired(attempt, quiz);
   const status = expiredByClock ? 'expired' : 'submitted';
+  const submittedAt = new Date();
+  const expiresAt = attempt.expires_at || computeExpiresAtForAttempt(quiz, attempt.started_at);
 
-  await attempt.update({
+  const [updatedCount] = await QuizAttempt.update({
     answers,
     score: grading.score,
-    submitted_at: new Date(),
+    submitted_at: submittedAt,
     status,
-    expires_at: attempt.expires_at || computeExpiresAtForAttempt(quiz, attempt.started_at)
+    expires_at: expiresAt
+  }, {
+    where: { id: attempt.id, submitted_at: null }
   });
 
+  if (updatedCount === 0) {
+    await attempt.reload();
+    const existingGrading = gradeQuizAttempt(quiz, attempt.answers || answers);
+    return {
+      grading: existingGrading,
+      status: attempt.status || 'submitted',
+      alreadyFinalized: true
+    };
+  }
+
+  await attempt.reload();
   return { grading, status };
 };
 

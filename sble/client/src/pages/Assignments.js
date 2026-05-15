@@ -31,6 +31,7 @@ import {
   StatsRow,
   Stat
 } from '../components/assessment/AssessmentPrimitives';
+import CoursePageFrame from '../components/workspace/CoursePageFrame';
 import s from '../components/assessment/AssessmentPrimitives.module.css';
 
 export default function Assignments() {
@@ -276,6 +277,7 @@ export default function Assignments() {
 
   return (
     <AssessmentShell wide={isLecturer}>
+      <CoursePageFrame courseId={courseId} pageTitle="Assignments">
       <AssessmentPageHeader
         kicker={isLecturer ? 'Teaching · assessment' : 'Learning · assessment'}
         title="Assignments"
@@ -506,6 +508,7 @@ export default function Assignments() {
       {!loading && assignments.length === 0 ? (
         <AssessmentEmpty>No assignments in this course yet.</AssessmentEmpty>
       ) : null}
+      </CoursePageFrame>
     </AssessmentShell>
   );
 }

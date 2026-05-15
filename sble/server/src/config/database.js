@@ -1,5 +1,12 @@
 const { Sequelize } = require('sequelize');
+const pg = require('pg');
 const logger = require('./logger');
+
+// Postgres TIMESTAMP (no time zone) is stored as UTC wall time; parse as UTC on read.
+pg.types.setTypeParser(1114, (value) => {
+  if (value === null) return null;
+  return new Date(`${String(value).trim().replace(' ', 'T')}Z`);
+});
 
 const dialect = process.env.DB_DIALECT || 'postgres';
 const defaultPort = dialect === 'postgres' ? 5432 : 3306;
@@ -9,6 +16,8 @@ const dbConfig = {
   host: process.env.DB_HOST || 'localhost',
   port: dbPort,
   dialect,
+  // TIMESTAMP WITHOUT TIME ZONE columns are stored/read as UTC consistently
+  timezone: '+00:00',
   logging: false,
   pool: {
     max: 10,

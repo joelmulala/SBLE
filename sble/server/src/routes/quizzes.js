@@ -12,14 +12,23 @@ const {
   finalizeAttempt: finalizeAttemptRecord
 } = require('../services/assessment/quizAssessmentService');
 const { validateQuizQuestionsForPublish, totalDurationMinutesFromPayload } = require('../services/assessment/quizIntegrity');
+const { requireNonemptyTitle, filterAnswersForQuiz } = require('../utils/validation');
+const { toPgUtcTimestamp } = require('../utils/datetime');
 
 const guard = [keycloak.protect(), attachUser];
 
-const toDatabaseTimestamp = (date) => {
-  if (!date) return null;
-
-  const pad = (value) => String(value).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+const formatGradingPayload = (gradingResult, extra = {}) => {
+  const grading = gradingResult?.grading || gradingResult || {};
+  const score = grading.score ?? 0;
+  const totalMarks = grading.totalMarks ?? 0;
+  return {
+    score,
+    totalMarks,
+    correctAnswers: grading.correctAnswers,
+    feedback: grading.feedback,
+    message: `You scored ${score}/${totalMarks}`,
+    ...extra
+  };
 };
 
 const decorateQuiz = (quiz) => {
@@ -61,20 +70,47 @@ const getLatestAttempt = async (quizId, studentId) => QuizAttempt.findOne({
   order: [['started_at', 'DESC'], ['id', 'DESC']]
 });
 
-const createAttemptRecord = async (quizId, studentId, quizRow) => {
+const createAttemptRecord = async (quizId, studentId) => {
+  const inProgress = await QuizAttempt.findOne({
+    where: { quiz_id: quizId, student_id: studentId, submitted_at: null },
+    order: [['started_at', 'DESC'], ['id', 'DESC']]
+  });
+  if (inProgress) return inProgress;
+
+  const submitted = await QuizAttempt.findOne({
+    where: { quiz_id: quizId, student_id: studentId },
+    order: [['submitted_at', 'DESC'], ['id', 'DESC']]
+  });
+  if (submitted?.submitted_at) {
+    const err = new Error('You have already used your quiz attempt');
+    err.status = 403;
+    throw err;
+  }
+
+  const freshQuiz = await Quiz.findByPk(quizId);
+  if (!freshQuiz) {
+    const err = new Error('Quiz not found');
+    err.status = 404;
+    throw err;
+  }
+
   const startedAt = new Date();
-  const expiresAt = computeExpiresAtForAttempt(quizRow, startedAt);
-  const attempt = await QuizAttempt.create({
+  let expiresAt = computeExpiresAtForAttempt(freshQuiz, startedAt);
+  if (!expiresAt || expiresAt.getTime() <= startedAt.getTime()) {
+    const { durationMinutes } = getQuizWindow(freshQuiz);
+    expiresAt = new Date(startedAt.getTime() + durationMinutes * 60000);
+  }
+
+  return QuizAttempt.create({
     quiz_id: quizId,
     student_id: studentId,
     answers: {},
     score: null,
     submitted_at: null,
+    started_at: startedAt,
     expires_at: expiresAt,
     status: 'in_progress'
   });
-  attempt.setDataValue('started_at', attempt.started_at || startedAt);
-  return attempt;
 };
 
 const serializeAttempt = (attempt) => {
@@ -180,7 +216,9 @@ router.get('/course/:courseId', ...guard, authorizeCourseAccess(req => req.param
 // Create quiz metadata as draft; questions can be added before publishing
 router.post('/', ...guard, requireLecturer, authorizeCourseAccess(req => req.body.course_id, { managerOnly: true }), async (req, res) => {
   try {
-    const { course_id, title, questions } = req.body;
+    const course_id = req.body.course_id;
+    const title = requireNonemptyTitle(req.body.title);
+    const { questions } = req.body;
     const normalizedQuestions = normalizeQuestions(questions);
     const durationMinutes = totalDurationMinutesFromPayload(req.body);
     const { startTime } = getQuizWindow({ time_limit_minutes: durationMinutes }, req.body);
@@ -196,7 +234,7 @@ router.post('/', ...guard, requireLecturer, authorizeCourseAccess(req => req.bod
     if (startTime) {
       await Quiz.sequelize.query(
         'UPDATE quizzes SET created_at = :startTime WHERE id = :id',
-        { replacements: { id: quiz.id, startTime: toDatabaseTimestamp(startTime) } }
+        { replacements: { id: quiz.id, startTime: toPgUtcTimestamp(startTime, 'start_time') } }
       );
       quiz.setDataValue('created_at', startTime);
     }
@@ -405,7 +443,7 @@ router.patch('/:id/publish', ...guard, requireLecturer,
 
     await Quiz.sequelize.query(
       'UPDATE quizzes SET created_at = :startTime WHERE id = :id',
-      { replacements: { id: quiz.id, startTime: toDatabaseTimestamp(startTime) } }
+      { replacements: { id: quiz.id, startTime: toPgUtcTimestamp(startTime, 'start_time') } }
     );
     quiz.setDataValue('created_at', startTime);
 
@@ -535,29 +573,28 @@ router.get('/:id', ...guard,
         const grading = gradeQuizAttempt(quiz, attempt.answers || {});
         return res.status(403).json({
           error: 'You have already used your quiz attempt',
-          ...grading,
           attempt_id: attempt.id,
           submitted_at: attempt.submitted_at,
-          message: `You scored ${grading.score}/${grading.totalMarks}`
+          ...formatGradingPayload({ grading })
         });
       }
 
       if (attempt && Date.now() >= getAttemptExpiry(attempt, quiz).getTime()) {
-        const grading = await finalizeAttemptRecord(attempt, quiz, attempt.answers || {});
+        const result = await finalizeAttemptRecord(attempt, quiz, attempt.answers || {});
+        await attempt.reload();
         return res.status(403).json({
           error: 'Quiz time expired and your attempt was auto-submitted',
-          ...grading,
           attempt_id: attempt.id,
           submitted_at: attempt.submitted_at,
           auto_submitted: true,
-          message: `You scored ${grading.score}/${grading.totalMarks}`
+          ...formatGradingPayload(result)
         });
       }
 
       ensureQuizWindowOpen(quiz);
 
       if (!attempt) {
-        attempt = await createAttemptRecord(quiz.id, req.user.id, quiz);
+        attempt = await createAttemptRecord(quiz.id, req.user.id);
       }
 
       quiz.setDataValue('attempt_id', attempt.id);
@@ -601,43 +638,45 @@ router.post('/:id/attempt', ...guard, requireStudent,
 
     let attempt = await getLatestAttempt(req.params.id, req.user.id);
     if (attempt?.submitted_at) {
-      const grading = gradeQuizAttempt(quiz, attempt.answers || {});
       return res.status(403).json({
         error: 'You have already used your quiz attempt',
-        ...grading,
         attempt_id: attempt.id,
         submitted_at: attempt.submitted_at,
-        message: `You scored ${grading.score}/${grading.totalMarks}`
+        ...formatGradingPayload({ grading: gradeQuizAttempt(quiz, attempt.answers || {}) })
       });
     }
 
     if (!attempt) {
       ensureQuizWindowOpen(quiz);
-      attempt = await createAttemptRecord(req.params.id, req.user.id, quiz);
+      attempt = await createAttemptRecord(req.params.id, req.user.id);
     }
 
-    const submittedAnswers = req.body?.answers && typeof req.body.answers === 'object'
-      ? req.body.answers
-      : {};
+    let submittedAnswers;
+    try {
+      submittedAnswers = filterAnswersForQuiz(req.body?.answers, quiz.QuizQuestions);
+    } catch (validationErr) {
+      return res.status(validationErr.status || 400).json({ error: validationErr.message });
+    }
 
     if (isAttemptTimeExpired(attempt, quiz)) {
-      const grading = await finalizeAttemptRecord(attempt, quiz, submittedAnswers);
+      const result = await finalizeAttemptRecord(attempt, quiz, submittedAnswers);
+      await attempt.reload();
       return res.status(403).json({
         error: 'Quiz time expired and your attempt was auto-submitted',
         attempt: serializeAttempt(attempt),
-        ...grading,
         auto_submitted: true,
-        message: `You scored ${grading.score}/${grading.totalMarks}`
+        ...formatGradingPayload(result)
       });
     }
 
-    const grading = await finalizeAttemptRecord(attempt, quiz, submittedAnswers);
+    const result = await finalizeAttemptRecord(attempt, quiz, submittedAnswers);
+    await attempt.reload();
 
     res.status(201).json({
       attempt: serializeAttempt(attempt),
-      ...grading,
       auto_graded: true,
-      message: `You scored ${grading.score}/${grading.totalMarks}`
+      status: result.status,
+      ...formatGradingPayload(result)
     });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });

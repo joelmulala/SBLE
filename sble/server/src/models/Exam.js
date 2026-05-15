@@ -9,7 +9,9 @@ const Exam = sequelize.define('Exam', {
   scheduled_at: { type: DataTypes.DATE },
   duration_minutes: { type: DataTypes.INTEGER, defaultValue: 120 },
   is_released: { type: DataTypes.BOOLEAN, defaultValue: false },
-  created_by: { type: DataTypes.STRING(36), allowNull: false }
+  created_by: { type: DataTypes.STRING(36), allowNull: false },
+  module_id: { type: DataTypes.INTEGER, allowNull: true },
+  module_sort_order: { type: DataTypes.INTEGER, defaultValue: 0 }
 }, { tableName: 'exams', timestamps: true, createdAt: 'created_at', updatedAt: false });
 
 module.exports = Exam;

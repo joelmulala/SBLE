@@ -23,18 +23,19 @@ while remaining Docker-ready for production deployment.
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        CLIENT BROWSER                           │
-│   React 18 + React Router 6 + Keycloak JS + Axios + SSE        │
+│   React 18 + React Router 6 + AuthProvider (JWT) + Axios + SSE │
 └────────────────────────┬────────────────────────────────────────┘
                          │ HTTPS / HTTP (dev)
 ┌────────────────────────▼────────────────────────────────────────┐
 │                     NODE.JS EXPRESS SERVER                      │
 │  Auth │ Courses │ Materials │ Assignments │ Quizzes │ Exams     │
-│  Rooms │ Notifications │ WebSocket (WebRTC Signaling)           │
+│  Rooms (LiveKit) │ Notifications │ Calendar │ Gradebook          │
 └──┬──────────┬──────────┬──────────┬──────────┬─────────────────┘
    │          │          │          │          │
    ▼          ▼          ▼          ▼          ▼
-MySQL 8   Keycloak    Redis      Local      node-cron
-(data)    (auth)    (sessions)  Disk/MinIO  (quiz timer)
+PostgreSQL  JWT auth   Redis      Local      node-cron
+(data)     (Bearer)   (sessions)  Disk/MinIO  (quiz timer)
+                              LiveKit (RTC)
                                (files)
 ```
 
@@ -48,17 +49,17 @@ MySQL 8   Keycloak    Redis      Local      node-cron
 | Frontend | React | 18.2 | UI layer |
 | Routing | React Router | 6.20 | Client-side navigation |
 | HTTP Client | Axios | 1.6 | API communication |
-| Auth Client | keycloak-js + @react-keycloak/web | 23 / 3.4 | OIDC token management |
+| Auth Client | AuthProvider + JWT | — | Login, token storage, role checks |
 | Backend | Node.js + Express | 18 LTS / 4.18 | REST API + WebSocket server |
 | ORM | Sequelize | 6.33 | Database abstraction |
-| Database | MySQL | 8.0 | Persistent data store |
-| Identity Provider | Keycloak | 23.0 | OAuth2/OIDC authentication |
+| Database | PostgreSQL | 14+ | Persistent data store |
+| Auth | jsonwebtoken | 9.x | JWT sign/verify |
 | Session Store | Redis (optional) | 7 | Persistent session storage |
 | File Encryption | Node.js crypto (AES-256-CBC) | built-in | At-rest file encryption |
 | File Upload | Multer | 1.4.5 | Multipart form handling |
 | Object Storage | Local disk / MinIO (optional) | — / latest | File persistence |
-| Real-time Video | WebRTC (browser native) | — | Peer-to-peer video/audio |
-| WS Signaling | ws (npm) | 8.14 | WebRTC offer/answer/ICE relay |
+| Live classroom | LiveKit | 2.x | SFU video/audio for rooms |
+| WS Signaling | ws (npm) | 8.14 | Optional legacy WebRTC (`ENABLE_LEGACY_WEBRTC`) |
 | Notifications | Server-Sent Events (SSE) | built-in HTTP | Real-time push to browser |
 | Email | Nodemailer | 6.9 | SMTP email delivery |
 | Scheduler | node-cron | 3.0 | Quiz timer enforcement |
@@ -72,21 +73,13 @@ MySQL 8   Keycloak    Redis      Local      node-cron
 
 Each integration point below describes what connects to what, how, and what happens if it is unavailable.
 
-### 4.1 Frontend ↔ Keycloak
+### 4.1 Frontend ↔ JWT Auth
 
-- **Protocol:** OpenID Connect (OIDC) / OAuth2
-- **Flow:** Authorization Code Flow with PKCE
-- **Library:** `keycloak-js` + `@react-keycloak/web`
-- **Config file:** `client/src/config/keycloak.js`
-- **What it does:** Redirects unauthenticated users to Keycloak login page. On success, returns a JWT access token attached to every API request via Axios interceptor.
-- **Token refresh:** Automatic — `keycloak.updateToken(30)` refreshes if expiring within 30 seconds.
-- **If unavailable:** App cannot load. Keycloak is a hard dependency.
-
-```
-Browser → Keycloak (http://localhost:8080)
-       ← JWT Access Token
-Browser → Express API (Authorization: Bearer <token>)
-```
+- **Protocol:** HTTP JSON (`POST /api/auth/login`, `GET /api/auth/me`)
+- **Client:** `client/src/auth/AuthProvider.js` — `useAuth()` / `useKeycloak()` (compat shim)
+- **Storage:** `localStorage` key `sbleToken`
+- **What it does:** Login form posts credentials; API returns JWT; Axios sends `Authorization: Bearer <token>` on protected routes.
+- **If unavailable:** Users cannot sign in; protected pages redirect to `/login`.
 
 ### 4.2 Frontend ↔ Express API
 
@@ -96,13 +89,15 @@ Browser → Express API (Authorization: Bearer <token>)
 - **Auth:** Bearer token injected by Axios interceptor on every request
 - **Endpoints:** auth, courses, materials, assignments, quizzes, exams, rooms, notifications
 
-### 4.3 Frontend ↔ WebRTC Signaling (WebSocket)
+### 4.3 Frontend ↔ LiveKit (live classroom)
 
-- **Protocol:** WebSocket (`ws://` dev / `wss://` production)
-- **Path:** `/ws/?room=<token>`
-- **Config file:** `server/src/services/webrtc/signalingServer.js`
-- **What it does:** Relays WebRTC offer/answer/ICE candidates between peers in the same room. Also relays in-room chat messages.
-- **If unavailable:** Video rooms cannot establish peer connections.
+- **Protocol:** WebRTC via LiveKit SFU
+- **Token:** `POST /api/rooms/:roomToken/livekit-token` (server signs with `livekit-server-sdk`)
+- **Client:** `livekit-client` through `createClassroomMediaAdapter()` → `livekitAdapter.js`
+- **Env:** `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_WS_URL` on the server
+- **If unavailable:** Room UI loads but media session cannot start (503 from token route).
+
+Legacy peer WebRTC signaling (`signalingServer.js`) runs only when `ENABLE_LEGACY_WEBRTC=true`.
 
 ### 4.4 Frontend ↔ SSE Notification Stream
 
@@ -112,21 +107,20 @@ Browser → Express API (Authorization: Bearer <token>)
 - **What it does:** Pushes real-time events to the browser — grade notifications and exam release alerts.
 - **If unavailable:** Notifications simply don't appear. All other features unaffected.
 
-### 4.5 Express API ↔ MySQL
+### 4.5 Express API ↔ PostgreSQL
 
-- **Library:** Sequelize ORM (mysql2 driver)
+- **Library:** Sequelize ORM (`pg` driver)
 - **Config file:** `server/src/config/database.js`
 - **Connection:** `DB_HOST:DB_PORT` from environment
 - **Pool:** max 10 connections, 30s acquire timeout
 - **If unavailable:** Server exits on startup with `Database connection failed`.
 
-### 4.6 Express API ↔ Keycloak (Token Verification)
+### 4.6 Express API ↔ JWT verification
 
-- **Library:** `keycloak-connect`
-- **Config file:** `server/src/config/keycloak.js`
-- **What it does:** Validates Bearer tokens on every protected route. Extracts user ID, email, and realm roles.
-- **Middleware:** `keycloak.protect()` + `attachUser` in `server/src/middleware/auth.js`
-- **If unavailable:** All protected routes return 401.
+- **Module:** `server/src/config/authGuard.js` (re-exported as `keycloak.js` for legacy requires)
+- **What it does:** Verifies Bearer JWT with `JWT_SECRET`; sets `req.user` and `req.kauth` grant shape for role helpers.
+- **Middleware:** `authGuard.protect()` + `attachUser` in `server/src/middleware/auth.js`
+- **If misconfigured:** Missing `JWT_SECRET` prevents server startup.
 
 ### 4.7 Express API ↔ Redis (Sessions)
 
@@ -170,13 +164,12 @@ Browser → Express API (Authorization: Bearer <token>)
 
 ```
 1. User opens http://localhost:3000
-2. ReactKeycloakProvider detects unauthenticated → redirects to Keycloak
-3. User enters credentials at http://localhost:8080
-4. Keycloak issues JWT access token + refresh token
-5. Browser stores tokens in memory (keycloak-js)
-6. React app loads, useAuthSync hook fires
-7. POST /api/auth/sync — creates/updates user record in MySQL
-8. App renders Dashboard with user data
+2. Unauthenticated users → /login
+3. POST /api/auth/login { email, password }
+4. API returns JWT + user profile
+5. AuthProvider stores token in localStorage (sbleToken)
+6. GET /api/auth/me validates session on reload
+7. App renders role dashboard (student or lecturer)
 ```
 
 ### 5.2 File Upload Flow (Material / Assignment / Exam)
@@ -273,15 +266,17 @@ All integration behaviour is controlled via environment variables in `server/.en
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
-| `DB_HOST` | Yes | localhost | MySQL host |
-| `DB_PORT` | Yes | 3306 | MySQL port |
-| `DB_NAME` | Yes | sble_db | Database name |
+| `DB_DIALECT` | No | postgres | `postgres` (default) |
+| `DB_HOST` | Yes | localhost | PostgreSQL host |
+| `DB_PORT` | No | 5432 | PostgreSQL port |
+| `DB_NAME` | Yes | sble | Database name |
 | `DB_USER` | Yes | — | Database user |
 | `DB_PASSWORD` | Yes | — | Database password |
-| `JWT_SECRET` | Yes | — | Session signing secret |
-| `KEYCLOAK_URL` | Yes | http://localhost:8080 | Keycloak server URL |
-| `KEYCLOAK_REALM` | Yes | sble | Keycloak realm name |
-| `KEYCLOAK_CLIENT_ID` | Yes | sble-client | Keycloak client ID |
+| `JWT_SECRET` | Yes | — | JWT signing + session secret |
+| `TEMP_STUDENT_PASSWORD` | No | — | Dev login password for seeded student |
+| `TEMP_LECTURER_PASSWORD` | No | — | Dev login password for seeded lecturer |
+| `TEMP_ADMIN_PASSWORD` | No | — | Dev login password for seeded admin |
+| `ENABLE_LEGACY_WEBRTC` | No | — | Set `true` to enable old WebSocket signaling |
 | `ENCRYPTION_KEY` | Yes | — | AES-256 key (32 chars) |
 | `UPLOAD_DIR` | No | ./uploads | Local file storage path |
 | `REDIS_HOST` | No | — | Redis host (blank = in-memory) |
@@ -302,10 +297,6 @@ All integration behaviour is controlled via environment variables in `server/.en
 | Variable | Default | Purpose |
 |---|---|---|
 | `REACT_APP_API_URL` | http://localhost:5000/api | Backend API base URL |
-| `REACT_APP_KEYCLOAK_URL` | http://localhost:8080 | Keycloak server URL |
-| `REACT_APP_KEYCLOAK_REALM` | sble | Keycloak realm |
-| `REACT_APP_KEYCLOAK_CLIENT_ID` | sble-client | Keycloak client ID |
-| `REACT_APP_CLASSROOM_BACKEND` | jitsi | `jitsi` = embedded Jitsi; `livekit` = native SBLE video (needs API `LIVEKIT_*` + token route) |
 
 ---
 
@@ -313,8 +304,9 @@ All integration behaviour is controlled via environment variables in `server/.en
 
 | Service | Required | Fallback if absent | Affected features |
 |---|---|---|---|
-| MySQL | YES | None — server exits | Everything |
-| Keycloak | YES | None — login impossible | Everything |
+| PostgreSQL | YES | None — server exits | Everything |
+| JWT / `JWT_SECRET` | YES | Server won't start | Auth |
+| LiveKit | No* | Live rooms return 503 token | Video only |
 | Redis | No | In-memory sessions | Sessions lost on restart |
 | SMTP | No | Emails silently skipped | Email notifications |
 | MinIO | No | Local disk storage | File persistence at scale |
@@ -457,9 +449,9 @@ sble/
 | Package | Version | Purpose |
 |---|---|---|
 | express | ^4.18.2 | HTTP server framework |
-| mysql2 | ^3.6.0 | MySQL driver |
+| pg | ^8.13.1 | PostgreSQL driver |
 | sequelize | ^6.33.0 | ORM |
-| keycloak-connect | ^23.0.0 | Keycloak server-side middleware |
+| livekit-server-sdk | ^2.15.3 | LiveKit access tokens for rooms |
 | express-session | ^1.17.3 | Session management |
 | connect-redis | ^7.1.0 | Redis session store adapter |
 | ioredis | ^5.3.2 | Redis client |
@@ -485,8 +477,7 @@ sble/
 | react-dom | ^18.2.0 | DOM rendering |
 | react-router-dom | ^6.20.0 | Client-side routing |
 | axios | ^1.6.0 | HTTP client |
-| keycloak-js | ^23.0.0 | Keycloak browser client |
-| @react-keycloak/web | ^3.4.0 | React Keycloak provider |
+| livekit-client | ^2.19.0 | LiveKit browser SDK |
 | react-scripts | 5.0.1 | CRA build tooling |
 
 ---
@@ -496,10 +487,10 @@ sble/
 Use this checklist to verify all integrations are working before a demo or submission.
 
 ### Authentication
-- [ ] Opening http://localhost:3000 redirects to Keycloak login
+- [ ] Opening http://localhost:3000 shows SBLE login when logged out
 - [ ] Logging in with lecturer account loads Dashboard
 - [ ] Logging in with student account loads Dashboard
-- [ ] Logout button redirects back to Keycloak
+- [ ] Logout clears session and returns to login
 
 ### Courses
 - [ ] Lecturer can create a course

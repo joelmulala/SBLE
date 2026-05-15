@@ -1,5 +1,5 @@
 /**
- * Transport-agnostic classroom media contract (Jitsi, LiveKit, etc.).
+ * Transport-agnostic classroom media contract (LiveKit).
  *
  * @typedef {'lecturer' | 'student'} ClassroomRole
  *
@@ -7,7 +7,7 @@
  * @property {string} roomId
  * @property {string} displayName
  * @property {ClassroomRole} role
- * @property {HTMLElement} [container] Jitsi embed parent; optional for other transports.
+ * @property {HTMLElement} [container] Legacy embed parent; unused for LiveKit.
  * @property {() => boolean} [getDisposed] When true, adapter must stop scheduling work and ignore late events.
  * @property {(handle: unknown) => void} [onRtcRoom] Optional: e.g. LiveKit `Room` instance when connected, or `null` when torn down.
  */
@@ -52,7 +52,7 @@
 
 /**
  * @typedef {Object} ClassroomConnectionEvent
- * @property {'connecting'|'session_joined'|'session_ready'|'local_left_session'|'script_error'|'start_error'} type
+ * @property {'connecting'|'session_joined'|'session_ready'|'local_left_session'|'script_error'|'start_error'|'device_warning'} type
  * @property {string} [message]
  * @property {string|number} [localId]
  * @property {string} [displayName]
@@ -112,6 +112,9 @@ export class ClassroomMediaAdapter {
 
   /** Student / instructor question signal (LiveKit data channel). */
   toggleQuestionSignal() {}
+
+  /** Toggle understood / agree until clicked again (LiveKit data channel). */
+  toggleParticipationAck(_kind) {}
 
   /** Lightweight acknowledgement pulse (LiveKit data channel). */
   sendParticipationAck(_kind) {}

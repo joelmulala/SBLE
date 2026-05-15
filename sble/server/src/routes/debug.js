@@ -46,11 +46,6 @@ router.get('/system', ...guard, async (req, res) => {
     nodeVersion: process.version,
     environment: process.env.NODE_ENV || 'development',
     authMode: 'jwt',
-    keycloakCompatibility: {
-      realm: process.env.KEYCLOAK_REALM || null,
-      url: process.env.KEYCLOAK_URL || null,
-      clientId: process.env.KEYCLOAK_CLIENT_ID || null
-    },
     services: {
       api: { up: true },
       database: db,

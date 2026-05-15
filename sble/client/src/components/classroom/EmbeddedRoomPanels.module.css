@@ -1,0 +1,82 @@
+.stack {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.peopleScroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.5rem 0.65rem 0.75rem;
+  pointer-events: auto;
+}
+
+.peopleMeta {
+  margin-bottom: 0.5rem;
+}
+
+.peopleScroll :global(.list) {
+  margin: 0;
+  padding: 0;
+}
+
+.chatHost {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 0.65rem 0.65rem;
+  pointer-events: auto;
+}
+
+.chatHost :global([class*='ClassroomChatPanel_panel']) {
+  height: 100%;
+}
+
+.chatHost :global([class*='ClassroomChatPanel_head']) {
+  display: none;
+}
+
+.chatHost :global([class*='ClassroomChatPanel_body']) {
+  border: none;
+  background: transparent;
+  padding: 0.25rem 0;
+}
+
+.chatHost :global([class*='ClassroomChatPanel_title']) {
+  color: #f1f5f9;
+}
+
+.notesLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.65rem;
+  pointer-events: auto;
+}
+
+.notesHint {
+  font-size: 0.72rem;
+  color: #94a3b8;
+}
+
+.notesArea {
+  width: 100%;
+  min-height: 10rem;
+  resize: vertical;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.6);
+  color: #f1f5f9;
+  padding: 0.55rem 0.65rem;
+  font-family: inherit;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.notesArea:focus {
+  outline: none;
+  border-color: rgba(45, 212, 191, 0.45);
+}

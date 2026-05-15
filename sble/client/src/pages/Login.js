@@ -64,9 +64,14 @@ export default function Login() {
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }} aria-label="Sign in">
+          <label htmlFor="login-email" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden' }}>
+            Email address
+          </label>
           <input
+            id="login-email"
             type="email"
+            autoComplete="email"
             value={form.email}
             onChange={(e) => setForm({ ...form, email: e.target.value })}
             placeholder="Email address"
@@ -79,8 +84,13 @@ export default function Login() {
               fontSize: '0.95rem'
             }}
           />
+          <label htmlFor="login-password" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden' }}>
+            Password
+          </label>
           <input
+            id="login-password"
             type="password"
+            autoComplete="current-password"
             value={form.password}
             onChange={(e) => setForm({ ...form, password: e.target.value })}
             placeholder="Password"
@@ -96,6 +106,7 @@ export default function Login() {
 
           {error && (
             <div
+              role="alert"
               style={{
                 color: '#b42318',
                 background: '#fef3f2',

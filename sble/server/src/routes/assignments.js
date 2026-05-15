@@ -5,7 +5,13 @@ const keycloak = require('../config/keycloak');
 const { attachUser, requireLecturer, requireStudent, authorizeCourseAccess, audit } = require('../middleware/auth');
 const { upload } = require('../services/storage/uploadService');
 const { encryptFile, decryptFileToStream } = require('../services/encryption/fileEncryption');
-const { Assignment, Submission, User, Course, Enrollment } = require('../models');
+const { Assignment, Submission, User, Course, Enrollment, sequelize } = require('../models');
+const {
+  requireNonemptyTitle,
+  clampGrade,
+  parseSubmissionType,
+  parseOptionalDueDate
+} = require('../utils/validation');
 const { sendGradeNotification } = require('../services/email/emailService');
 const { sendToUser } = require('../services/notifications/sseService');
 const { maskSubmissionForStudentView, submissionLocksStudentEdits } = require('../services/assessment/assignmentGradingView');
@@ -100,7 +106,11 @@ router.post('/', ...guard, requireLecturer,
     let encryptedPath = null;
 
     try {
-      const { course_id, title, description, due_date, allows_handwritten } = req.body;
+      const course_id = req.body.course_id;
+      const title = requireNonemptyTitle(req.body.title);
+      const description = String(req.body.description || '').trim().slice(0, 5000) || null;
+      const due_date = parseOptionalDueDate(req.body.due_date);
+      const allows_handwritten = req.body.allows_handwritten;
 
       if (req.file?.path) {
         encryptedPath = await encryptFile(req.file.path);
@@ -230,39 +240,58 @@ router.post('/:id/submit', ...guard, requireStudent,
         return res.status(400).json({ error: 'A submission file is required' });
       }
 
-      const { submission_type } = req.body;
+      const submission_type = parseSubmissionType(req.body.submission_type);
       const file_path = await encryptFile(req.file.path);
       const file_name = req.file.originalname;
       const timestamp = new Date();
-      const existingSubmission = await getLatestSubmission(req.params.id, req.user.id);
 
-      if (existingSubmission) {
-        if (existingSubmission.file_path && fs.existsSync(existingSubmission.file_path)) {
-          fs.unlinkSync(existingSubmission.file_path);
-        }
-
-        await existingSubmission.update({
-          file_path,
-          file_name,
-          submission_type: submission_type || existingSubmission.submission_type || 'typed',
-          submitted_at: timestamp,
-          last_updated_time: timestamp
+      let statusCode = 201;
+      const submission = await sequelize.transaction(async (transaction) => {
+        const existingSubmission = await Submission.findOne({
+          where: {
+            assignment_id: req.params.id,
+            student_id: req.user.id
+          },
+          order: [['last_updated_time', 'DESC'], ['submitted_at', 'DESC']],
+          transaction,
+          lock: transaction.LOCK.UPDATE
         });
 
-        return res.json(existingSubmission);
-      }
+        if (existingSubmission && submissionLocksStudentEdits(existingSubmission)) {
+          const err = new Error('This submission has been graded and can no longer be modified');
+          err.status = 403;
+          throw err;
+        }
 
-      const submission = await Submission.create({
-        assignment_id: req.params.id,
-        student_id: req.user.id,
-        file_path,
-        file_name,
-        submission_type: submission_type || 'typed',
-        submitted_at: timestamp,
-        last_updated_time: timestamp
+        if (existingSubmission) {
+          if (existingSubmission.file_path && fs.existsSync(existingSubmission.file_path)) {
+            fs.unlinkSync(existingSubmission.file_path);
+          }
+
+          await existingSubmission.update({
+            file_path,
+            file_name,
+            submission_type,
+            submitted_at: timestamp,
+            last_updated_time: timestamp
+          }, { transaction });
+
+          statusCode = 200;
+          return existingSubmission;
+        }
+
+        return Submission.create({
+          assignment_id: req.params.id,
+          student_id: req.user.id,
+          file_path,
+          file_name,
+          submission_type,
+          submitted_at: timestamp,
+          last_updated_time: timestamp
+        }, { transaction });
       });
 
-      res.status(201).json(submission);
+      res.status(statusCode).json(submission);
     } catch (err) {
       if (req.file?.path && fs.existsSync(req.file.path)) {
         fs.unlinkSync(req.file.path);
@@ -394,18 +423,28 @@ router.patch('/submissions/:id/grade', ...guard, requireLecturer,
     const { grade, feedback, publish } = req.body;
     const submission = req.submission;
 
-    const gradeNum = grade === '' || grade === undefined || grade === null ? null : Number(grade);
-    if (publish && (gradeNum === null || Number.isNaN(gradeNum))) {
+    let gradeNum = null;
+    try {
+      gradeNum = clampGrade(grade);
+    } catch (validationErr) {
+      return res.status(validationErr.status || 400).json({ error: validationErr.message });
+    }
+
+    if (publish && gradeNum === null) {
       return res.status(400).json({ error: 'Enter a numeric grade before publishing results to students.' });
     }
 
     let nextStatus = submission.grading_status || 'pending';
     if (publish) nextStatus = 'published';
-    else if (gradeNum != null && !Number.isNaN(gradeNum)) nextStatus = 'graded';
+    else if (gradeNum !== null) nextStatus = 'graded';
+
+    const nextFeedback = feedback !== undefined
+      ? String(feedback || '').trim().slice(0, 5000)
+      : submission.feedback;
 
     await submission.update({
-      grade: gradeNum != null && !Number.isNaN(gradeNum) ? gradeNum : submission.grade,
-      feedback: feedback !== undefined ? feedback : submission.feedback,
+      grade: gradeNum !== null ? gradeNum : submission.grade,
+      feedback: nextFeedback,
       grading_status: nextStatus,
       results_published_at: publish ? new Date() : submission.results_published_at,
       last_updated_time: new Date()

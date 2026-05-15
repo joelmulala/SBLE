@@ -8,12 +8,16 @@ const rateLimit = require('express-rate-limit');
 const { createServer } = require('http');
 
 const { sequelize } = require('./models');
-const keycloak = require('./config/keycloak');
+const authGuard = require('./config/authGuard');
 const logger = require('./config/logger');
 const { notFoundHandler, errorHandler } = require('./middleware/errorMiddleware');
 const { logRegisteredRoutes } = require('./debugRouteTable');
 const initWebRTC = require('./services/webrtc/signalingServer');
 const initQuizTimer = require('./services/scheduler/quizTimer');
+const { ensureInstitutionalSchema } = require('./services/academic/ensureInstitutionalSchema');
+const { ensureCourseModulesSchema } = require('./services/academic/ensureCourseModulesSchema');
+const { ensureCalendarSchema } = require('./services/academic/ensureCalendarSchema');
+const { ensureLiveClassSchema } = require('./services/academic/ensureLiveClassSchema');
 
 // Routes
 const authRoutes = require('./routes/auth');
@@ -26,15 +30,20 @@ const roomRoutes = require('./routes/rooms');
 const notificationRoutes = require('./routes/notifications');
 const userRoutes = require('./routes/users');
 const debugRoutes = require('./routes/debug');
+const gradebookRoutes = require('./routes/gradebook');
+const calendarRoutes = require('./routes/calendar');
+const announcementRoutes = require('./routes/announcements');
+const communicationRoutes = require('./routes/communication');
 
 const app = express();
 const httpServer = createServer(app);
 
-logger.info('[SBLE DEBUG] Server entrypoint (this process)', {
-  file: path.resolve(__filename),
-  pid: process.pid,
-  argv: process.argv
-});
+if (process.env.NODE_ENV !== 'production') {
+  logger.debug('Server entrypoint', {
+    file: path.resolve(__filename),
+    pid: process.pid
+  });
+}
 
 const PERFORMANCE_SERVICE_URL = process.env.PERFORMANCE_SERVICE_URL || 'http://localhost:8000/analyze-performance';
 const PERFORMANCE_SERVICE_TIMEOUT_MS = Number.parseInt(process.env.PERFORMANCE_SERVICE_TIMEOUT_MS || '2000', 10);
@@ -205,17 +214,17 @@ if (redisClient) {
 }
 app.use(session(sessionConfig));
 
-// Auth middleware compatibility shim
-app.use(keycloak.middleware());
+app.use(authGuard.middleware());
 
-// TEMPORARY: log room-related requests before route dispatch (remove after debugging).
-app.use((req, res, next) => {
-  const url = req.originalUrl || req.url || '';
-  if (url.includes('/api/rooms') || url.includes('livekit-token')) {
-    logger.info(`[SBLE DEBUG REQ] ${req.method} originalUrl=${req.originalUrl} path=${req.path}`);
-  }
-  next();
-});
+if (process.env.NODE_ENV !== 'production' && process.env.DEBUG_HTTP === 'true') {
+  app.use((req, res, next) => {
+    const url = req.originalUrl || req.url || '';
+    if (url.includes('/api/rooms') || url.includes('livekit-token')) {
+      logger.debug(`HTTP ${req.method} ${req.originalUrl}`);
+    }
+    next();
+  });
+}
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -225,10 +234,15 @@ app.use('/api/assignments', assignmentRoutes);
 app.use('/api/quizzes', quizRoutes);
 app.use('/api/exams', examRoutes);
 app.use('/api/rooms', roomRoutes);
-logger.info('[SBLE DEBUG] Mounted roomRoutes at /api/rooms', { stackLayers: roomRoutes.stack?.length });
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/gradebook', gradebookRoutes);
+app.use('/api/calendar', calendarRoutes);
+app.use('/api/announcements', announcementRoutes);
+app.use('/api/communication', communicationRoutes);
 app.use('/api/users', userRoutes);
-app.use('/api/admin/debug', debugRoutes);
+if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_ADMIN_DEBUG === 'true') {
+  app.use('/api/admin/debug', debugRoutes);
+}
 
 // Health check with dependency status.
 app.get('/api/health', async (req, res) => {
@@ -266,13 +280,19 @@ app.get('/api/health', async (req, res) => {
   return res.status(statusCode).json(health);
 });
 
-logRegisteredRoutes(app, logger);
+if (process.env.NODE_ENV !== 'production') {
+  logRegisteredRoutes(app, logger);
+}
 
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-// Init WebRTC signaling over WebSocket
-initWebRTC(httpServer, redisClient);
+if (process.env.ENABLE_LEGACY_WEBRTC === 'true') {
+  initWebRTC(httpServer, redisClient);
+  logger.info('Legacy WebRTC signaling enabled (ENABLE_LEGACY_WEBRTC=true)');
+} else {
+  logger.info('Live classroom uses LiveKit; legacy WebRTC signaling is off');
+}
 
 // Init quiz auto-submit timer
 initQuizTimer();
@@ -306,10 +326,14 @@ const startServer = async () => {
   try {
     validateRequiredEnv();
     await connectToDatabaseWithRetry();
+    await ensureInstitutionalSchema();
+    await ensureCourseModulesSchema();
+    await ensureCalendarSchema();
+    await ensureLiveClassSchema();
     httpServer.listen(PORT, () => {
       const addr = httpServer.address();
       logger.info(`SBLE server running on port ${PORT}`);
-      logger.info('[SBLE DEBUG] HTTP listener bound', { address: addr, pid: process.pid, port: PORT });
+      logger.debug('HTTP listener bound', { address: addr, port: PORT });
     });
   } catch (err) {
     logger.error('Server startup failed:', err);

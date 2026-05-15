@@ -21,33 +21,23 @@ function IconShrink() {
  * Minimal top-right controls on the live video well (classroom fullscreen + optional presentation expand).
  */
 export default function VideoStageChrome({
-  onClassroomFullscreen,
   showPresentationExpand = false,
   presentationFsActive = false,
   onPresentationFullscreen
 }) {
+  if (!showPresentationExpand) return null;
+
   return (
     <div className={styles.chrome}>
-      {showPresentationExpand ? (
-        <button
-          type="button"
-          className={[styles.btn, presentationFsActive && styles.btnActive].filter(Boolean).join(' ')}
-          onClick={onPresentationFullscreen}
-          title={presentationFsActive ? 'Exit expanded slides' : 'Expand shared content'}
-          aria-pressed={presentationFsActive}
-          aria-label={presentationFsActive ? 'Exit expanded slides' : 'Expand shared content'}
-        >
-          {presentationFsActive ? <IconShrink /> : <IconExpand />}
-        </button>
-      ) : null}
       <button
         type="button"
-        className={styles.btn}
-        onClick={onClassroomFullscreen}
-        title="Fullscreen classroom"
-        aria-label="Fullscreen classroom"
+        className={[styles.btn, presentationFsActive && styles.btnActive].filter(Boolean).join(' ')}
+        onClick={onPresentationFullscreen}
+        title={presentationFsActive ? 'Exit expanded slides' : 'Expand shared content'}
+        aria-pressed={presentationFsActive}
+        aria-label={presentationFsActive ? 'Exit expanded slides' : 'Expand shared content'}
       >
-        <IconExpand />
+        {presentationFsActive ? <IconShrink /> : <IconExpand />}
       </button>
     </div>
   );

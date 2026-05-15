@@ -42,8 +42,10 @@ const storage = multer.diskStorage({
     cb(null, dest);
   },
   filename: (req, file, cb) => {
+    const rawExt = path.extname(file.originalname || '').toLowerCase();
+    const ext = /^\.[a-z0-9]{1,10}$/.test(rawExt) ? rawExt : '';
     const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    cb(null, `${unique}${path.extname(file.originalname)}`);
+    cb(null, `${unique}${ext}`);
   }
 });
 
@@ -81,13 +83,30 @@ const storeFile = async (localPath, folder = 'misc') => {
 /**
  * Stream a file to a response — from MinIO if configured, otherwise local disk.
  */
+const assertLocalPathSafe = (storagePath) => {
+  const resolved = path.resolve(storagePath);
+  const root = path.resolve(UPLOAD_DIR);
+  if (!resolved.startsWith(root)) {
+    const err = new Error('Invalid file path');
+    err.status = 400;
+    throw err;
+  }
+  return resolved;
+};
+
 const streamFile = async (storagePath, res) => {
   if (!minioClient) {
-    fs.createReadStream(storagePath).pipe(res);
+    const safePath = assertLocalPathSafe(storagePath);
+    if (!fs.existsSync(safePath)) {
+      const err = new Error('File not found');
+      err.status = 404;
+      throw err;
+    }
+    fs.createReadStream(safePath).pipe(res);
     return;
   }
   const stream = await minioClient.getObject(BUCKET, storagePath);
   stream.pipe(res);
 };
 
-module.exports = { upload, UPLOAD_DIR, storeFile, streamFile };
+module.exports = { upload, UPLOAD_DIR, storeFile, streamFile, ALLOWED_TYPES, assertLocalPathSafe };

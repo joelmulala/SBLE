@@ -9,7 +9,9 @@ const Material = sequelize.define('Material', {
   file_name: { type: DataTypes.STRING, allowNull: false },
   file_type: { type: DataTypes.STRING(100) },
   is_encrypted: { type: DataTypes.BOOLEAN, defaultValue: true },
-  uploaded_by: { type: DataTypes.STRING(36), allowNull: false }
+  uploaded_by: { type: DataTypes.STRING(36), allowNull: false },
+  module_id: { type: DataTypes.INTEGER, allowNull: true },
+  module_sort_order: { type: DataTypes.INTEGER, defaultValue: 0 }
 }, { tableName: 'materials', timestamps: true, createdAt: 'created_at', updatedAt: false });
 
 module.exports = Material;

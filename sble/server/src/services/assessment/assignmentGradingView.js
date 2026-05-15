@@ -1,13 +1,12 @@
+const { submissionGradeReleased } = require('../academic/gradeAggregationUtils');
+
 /**
  * Strip unreleased grades before returning submissions to students.
  */
 function maskSubmissionForStudentView(sub) {
   if (!sub) return null;
   const row = typeof sub.toJSON === 'function' ? sub.toJSON() : { ...sub };
-  const legacyGraded = row.grade != null && (row.grading_status == null || row.grading_status === '');
-  const visible = row.grading_status === 'published'
-    || Boolean(row.results_published_at)
-    || legacyGraded;
+  const visible = submissionGradeReleased(row);
 
   if (!visible) {
     row.grade = null;

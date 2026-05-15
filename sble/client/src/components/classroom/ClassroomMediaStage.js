@@ -16,6 +16,7 @@ import styles from './ClassroomMediaStage.module.css';
  *   }) => void
  * }} props
  */
+/** @alias LiveClassroomStage */
 const ClassroomMediaStage = forwardRef(function ClassroomMediaStage(
   { room, sidebarOpen = false, presenceByIdentity = {}, onStageMetaChange },
   ref
@@ -53,3 +54,4 @@ const ClassroomMediaStage = forwardRef(function ClassroomMediaStage(
 });
 
 export default ClassroomMediaStage;
+export { ClassroomMediaStage as LiveClassroomStage };

@@ -5,6 +5,8 @@ const { signToken } = require('../config/auth');
 const { attachUser } = require('../middleware/auth');
 const { sendLoginNotification } = require('../services/email/emailService');
 const { User } = require('../models');
+const { isDevLoginAllowed } = require('../utils/validation');
+
 const tempPasswords = {
   admin: process.env.TEMP_ADMIN_PASSWORD,
   lecturer: process.env.TEMP_LECTURER_PASSWORD,
@@ -79,6 +81,12 @@ router.post('/login', async (req, res) => {
 
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    if (!isDevLoginAllowed()) {
+      return res.status(503).json({
+        error: 'Password login is disabled in production. Contact your administrator.'
+      });
     }
 
     const user = await User.findOne({ where: { email, is_active: true } });

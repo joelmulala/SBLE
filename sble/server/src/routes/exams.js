@@ -5,6 +5,8 @@ const { attachUser, requireLecturer, authorizeCourseAccess, audit } = require('.
 const { upload } = require('../services/storage/uploadService');
 const { encryptFile, decryptFileToStream } = require('../services/encryption/fileEncryption');
 const { Exam, Enrollment, User, Course } = require('../models');
+const { requireNonemptyTitle } = require('../utils/validation');
+const { parseDbDate, toSequelizeDate } = require('../utils/datetime');
 const { sendExamReleaseNotification } = require('../services/email/emailService');
 const { broadcast } = require('../services/notifications/sseService');
 
@@ -30,15 +32,7 @@ const normalizeExamUploadBody = (req, res, next) => {
 
 const parseOptionalDate = (value, fieldName) => {
   if (value === undefined || value === null || value === '') return null;
-
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    const err = new Error(`${fieldName} must be a valid date/time`);
-    err.status = 400;
-    throw err;
-  }
-
-  return date;
+  return parseDbDate(value, fieldName);
 };
 
 const resolveDurationMinutes = (value, fallback = 120) => {
@@ -51,16 +45,16 @@ const resolveDurationMinutes = (value, fallback = 120) => {
   return parsed;
 };
 
-const toDatabaseTimestamp = (date) => {
-  if (!date) return null;
-
-  const pad = (value) => String(value).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-};
+const getExamRow = (exam) => (exam?.get ? exam.get({ plain: true }) : exam);
 
 const getExamWindow = (exam, overrides = {}, { defaultStartNow = false } = {}) => {
+  const row = getExamRow(exam);
   const startTime = parseOptionalDate(
-    overrides.start_time ?? overrides.scheduled_at ?? exam?.scheduled_at ?? (defaultStartNow ? new Date() : null),
+    overrides.start_time
+      ?? overrides.scheduled_at
+      ?? row?.start_time
+      ?? row?.scheduled_at
+      ?? (defaultStartNow ? new Date() : null),
     'start_time'
   );
   const requestedEndTime = parseOptionalDate(overrides.end_time ?? null, 'end_time');
@@ -95,21 +89,30 @@ const decorateExam = (exam) => {
   exam.setDataValue('start_time', startTime);
   exam.setDataValue('end_time', endTime);
   exam.setDataValue('duration_minutes', durationMinutes);
+
+  const now = Date.now();
+  let window_status = 'open';
+  if (startTime && now < startTime.getTime()) window_status = 'upcoming';
+  else if (endTime && now >= endTime.getTime()) window_status = 'ended';
+  exam.setDataValue('window_status', window_status);
+
   return exam;
 };
 
-const ensureExamWindowOpenForStudent = (exam) => {
-  const now = new Date();
-  const start = new Date(exam.start_time || exam.scheduled_at);
-  const end = new Date(start.getTime() + Number(exam.duration_minutes || 0) * 60000);
+const filterExamsForStudent = (exams) => exams.filter((exam) => exam.is_released);
 
-  if (
-    Number.isNaN(start.getTime())
-    || Number.isNaN(end.getTime())
-    || now < start
-    || now > end
-  ) {
-    const err = new Error('Exam not available');
+const ensureExamWindowOpenForStudent = (exam) => {
+  const { startTime, endTime } = getExamWindow(exam);
+  const now = Date.now();
+
+  if (startTime && now < startTime.getTime()) {
+    const err = new Error('Exam not available yet');
+    err.status = 403;
+    throw err;
+  }
+
+  if (endTime && now >= endTime.getTime()) {
+    const err = new Error('Exam window has ended');
     err.status = 403;
     throw err;
   }
@@ -144,13 +147,7 @@ router.get('/', ...guard, async (req, res) => {
     const decorated = exams.map(decorateExam);
 
     if (role === 'student') {
-      const now = Date.now();
-      return res.json(decorated.filter((exam) => {
-        const { startTime, endTime } = getExamWindow(exam);
-        if (startTime && now < startTime.getTime()) return false;
-        if (endTime && now >= endTime.getTime()) return false;
-        return true;
-      }));
+      return res.json(filterExamsForStudent(decorated));
     }
 
     res.json(decorated);
@@ -162,22 +159,21 @@ router.get('/', ...guard, async (req, res) => {
 // List exams for a course
 router.get('/course/:courseId', ...guard, authorizeCourseAccess(req => req.params.courseId), async (req, res) => {
   try {
+    const courseId = Number.parseInt(req.params.courseId, 10);
+    if (!Number.isFinite(courseId)) {
+      return res.status(400).json({ error: 'Invalid course id' });
+    }
+
     const roles = req.user.roles || (req.user.role ? [req.user.role] : []);
     const isLecturer = roles.includes('lecturer') || roles.includes('admin');
-    const where = { course_id: req.params.courseId };
+    const where = { course_id: courseId };
     if (!isLecturer) where.is_released = true;
 
     const exams = await Exam.findAll({ where, order: [['scheduled_at', 'ASC'], ['created_at', 'DESC']] });
     const decorated = exams.map(decorateExam);
 
     if (!isLecturer) {
-      const now = Date.now();
-      return res.json(decorated.filter((exam) => {
-        const { startTime, endTime } = getExamWindow(exam);
-        if (startTime && now < startTime.getTime()) return false;
-        if (endTime && now >= endTime.getTime()) return false;
-        return true;
-      }));
+      return res.json(filterExamsForStudent(decorated));
     }
 
     res.json(decorated);
@@ -195,7 +191,12 @@ router.post('/upload', ...guard, requireLecturer,
   audit('UPLOAD_EXAM', 'exam'),
   async (req, res) => {
     try {
-      const { courseId, title } = req.body;
+      if (!req.file?.path) {
+        return res.status(400).json({ error: 'A file is required' });
+      }
+
+      const courseId = req.body.courseId;
+      const title = requireNonemptyTitle(req.body.title);
       const { startTime, durationMinutes } = getExamWindow(null, req.body, { defaultStartNow: true });
       const encryptedPath = await encryptFile(req.file.path);
 
@@ -203,7 +204,7 @@ router.post('/upload', ...guard, requireLecturer,
         course_id: courseId,
         title,
         file_path: encryptedPath,
-        scheduled_at: toDatabaseTimestamp(startTime),
+        scheduled_at: toSequelizeDate(startTime, 'start_time'),
         duration_minutes: durationMinutes,
         created_by: req.user.id
       });
@@ -239,18 +240,22 @@ router.patch('/:id/release', ...guard, requireLecturer,
 
     await exam.update({
       is_released: true,
-      scheduled_at: toDatabaseTimestamp(startTime),
+      scheduled_at: toSequelizeDate(startTime, 'start_time'),
       duration_minutes: durationMinutes
     });
+    await exam.reload();
 
-    // Notify enrolled students via email and SSE
-    const enrollments = await Enrollment.findAll({
-      where: { course_id: exam.course_id },
-      include: [{ model: User, as: 'student', attributes: ['email', 'id'] }]
-    });
-    const emails = enrollments.map(e => e.student?.email).filter(Boolean);
-    sendExamReleaseNotification(emails, exam.title, exam.Course?.title || '');
-    broadcast('exam-released', { examId: exam.id, title: exam.title, courseId: exam.course_id });
+    try {
+      const enrollments = await Enrollment.findAll({
+        where: { course_id: exam.course_id },
+        include: [{ model: User, as: 'student', attributes: ['email', 'id'] }]
+      });
+      const emails = enrollments.map((e) => e.student?.email).filter(Boolean);
+      sendExamReleaseNotification(emails, exam.title, exam.Course?.title || '').catch(() => {});
+      broadcast('exam-released', { examId: exam.id, title: exam.title, courseId: exam.course_id });
+    } catch (notifyErr) {
+      // Release must succeed even if notifications fail
+    }
 
     res.json(decorateExam(exam));
   } catch (err) {

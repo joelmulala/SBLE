@@ -60,6 +60,57 @@ function isLecturerLike(metadata) {
   return meta.role === 'lecturer' || meta.role === 'admin';
 }
 
+/** User-facing hint when getUserMedia / LiveKit track publish fails. */
+function describeDeviceError(kind, err) {
+  const raw = String(err?.message || err || '').trim();
+  const lower = raw.toLowerCase();
+
+  if (kind === 'camera' && (/timeout/i.test(raw) || /video source/i.test(lower))) {
+    return 'Camera did not start in time. Close other apps using the camera, allow browser camera access, then tap the camera button to retry.';
+  }
+  if (/notallowed|permission|denied/i.test(raw)) {
+    return kind === 'camera'
+      ? 'Camera access was blocked. Allow camera permission in your browser, then retry from the camera button.'
+      : 'Microphone access was blocked. Allow microphone permission in your browser, then retry from the mic button.';
+  }
+  if (/notfound|devicesnotfound|no device/i.test(lower)) {
+    return kind === 'camera'
+      ? 'No camera was found on this device.'
+      : 'No microphone was found on this device.';
+  }
+  if (/notreadable|in use|busy/i.test(lower)) {
+    return kind === 'camera'
+      ? 'Camera is in use by another application. Close it and use the camera button to retry.'
+      : 'Microphone is in use by another application.';
+  }
+
+  return kind === 'camera'
+    ? (raw || 'Could not start camera. Use the camera button to retry.')
+    : (raw || 'Could not start microphone. Use the mic button to retry.');
+}
+
+/**
+ * Enable local mic/camera without failing the room connection.
+ * @returns {Promise<string[]>} non-fatal warnings for the UI
+ */
+async function enableLocalAvTracks(localParticipant) {
+  const warnings = [];
+
+  try {
+    await localParticipant.setMicrophoneEnabled(true);
+  } catch (err) {
+    warnings.push(describeDeviceError('microphone', err));
+  }
+
+  try {
+    await localParticipant.setCameraEnabled(true);
+  } catch (err) {
+    warnings.push(describeDeviceError('camera', err));
+  }
+
+  return warnings;
+}
+
 function participantToRow(participant, isLocal, room, localJoinIso, participationMap) {
   const meta = parseClassroomMetadata(participant.metadata);
   const sbRole = meta.role || 'student';
@@ -78,7 +129,13 @@ function participantToRow(participant, isLocal, room, localJoinIso, participatio
 
   const extra = participationMap.get(participant.identity) || {};
   let participationAck = null;
-  if (extra.ack && typeof extra.ackTs === 'number' && (Date.now() - extra.ackTs < ACK_DISPLAY_MS)) {
+  if (extra.ack === 'understood' || extra.ack === 'agree') {
+    participationAck = extra.ack;
+  } else if (
+    extra.ack === 'listening'
+    && typeof extra.ackTs === 'number'
+    && (Date.now() - extra.ackTs < ACK_DISPLAY_MS)
+  ) {
     participationAck = extra.ack;
   }
 
@@ -511,9 +568,6 @@ export class LiveKitClassroomMediaAdapter extends ClassroomMediaAdapter {
         this._hookScreenShareTrack(pub);
       });
 
-      await room.localParticipant.setCameraEnabled(true);
-      await room.localParticipant.setMicrophoneEnabled(true);
-
       this._notifyRtcRoom(room);
       this._syncParticipants();
 
@@ -523,7 +577,14 @@ export class LiveKitClassroomMediaAdapter extends ClassroomMediaAdapter {
         displayName: options.displayName,
         role: this._sbRole
       });
+
+      const deviceWarnings = await enableLocalAvTracks(room.localParticipant);
+      this._syncParticipants();
+
       this._emitConnection({ type: 'session_ready' });
+      deviceWarnings.forEach((message) => {
+        this._emitConnection({ type: 'device_warning', message });
+      });
       this._emitClassroomSessionStatePayload();
     } catch (err) {
       this._connectStarted = false;
@@ -567,13 +628,29 @@ export class LiveKitClassroomMediaAdapter extends ClassroomMediaAdapter {
   toggleMic() {
     const lp = this._room?.localParticipant;
     if (!lp) return;
-    lp.setMicrophoneEnabled(!lp.isMicrophoneEnabled).catch(() => {});
+    const next = !lp.isMicrophoneEnabled;
+    lp.setMicrophoneEnabled(next).catch((err) => {
+      if (next) {
+        this._emitConnection({
+          type: 'device_warning',
+          message: describeDeviceError('microphone', err)
+        });
+      }
+    });
   }
 
   toggleCamera() {
     const lp = this._room?.localParticipant;
     if (!lp) return;
-    lp.setCameraEnabled(!lp.isCameraEnabled).catch(() => {});
+    const next = !lp.isCameraEnabled;
+    lp.setCameraEnabled(next).catch((err) => {
+      if (next) {
+        this._emitConnection({
+          type: 'device_warning',
+          message: describeDeviceError('camera', err)
+        });
+      }
+    });
   }
 
   toggleScreenShare() {
@@ -644,9 +721,35 @@ export class LiveKitClassroomMediaAdapter extends ClassroomMediaAdapter {
     lp.publishData(payload, { reliable: true }).catch(() => {});
   }
 
-  sendParticipationAck(kind) {
-    const allowed = ['understood', 'agree', 'listening'];
+  toggleParticipationAck(kind) {
+    const allowed = ['understood', 'agree'];
     if (!allowed.includes(kind)) return;
+    const lp = this._room?.localParticipant;
+    if (!lp || this._getDisposed()) return;
+    const id = lp.identity;
+    const cur = this._participation.get(id) || {};
+    const active = cur.ack === kind;
+
+    if (this._ackClearTimer) {
+      clearTimeout(this._ackClearTimer);
+      this._ackClearTimer = null;
+    }
+
+    if (active) {
+      this._participation.set(id, { ...cur, ack: null, ackTs: null });
+    } else {
+      this._participation.set(id, { ...cur, ack: kind, ackTs: Date.now() });
+    }
+    this._syncParticipants();
+    this._publishLocalParticipation().catch(() => {});
+  }
+
+  sendParticipationAck(kind) {
+    if (kind === 'understood' || kind === 'agree') {
+      this.toggleParticipationAck(kind);
+      return;
+    }
+    if (kind !== 'listening') return;
     const lp = this._room?.localParticipant;
     if (!lp || this._getDisposed()) return;
     const id = lp.identity;
@@ -660,7 +763,7 @@ export class LiveKitClassroomMediaAdapter extends ClassroomMediaAdapter {
     this._ackClearTimer = setTimeout(() => {
       if (this._getDisposed() || !this._room) return;
       const next = this._participation.get(id);
-      if (!next) return;
+      if (!next || next.ack !== 'listening') return;
       this._participation.set(id, { ...next, ack: null, ackTs: null });
       this._syncParticipants();
       this._publishLocalParticipation().catch(() => {});

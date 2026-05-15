@@ -1,8 +1,48 @@
+.skipLink {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 1000;
+  padding: 10px 16px;
+  background: #1e3a5f;
+  color: #fff;
+  border-radius: 0 0 8px 0;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.skipLink:focus {
+  left: 0;
+}
+
 .shell {
   display: grid;
   grid-template-columns: 264px minmax(0, 1fr);
   height: 100vh;
   overflow: hidden;
+  position: relative;
+}
+
+.shell :focus-visible {
+  outline: 2px solid var(--color-brand, #4f8ef7);
+  outline-offset: 2px;
+}
+
+@media (max-width: 900px) {
+  .shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+    height: auto;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    max-height: none;
+  }
+
+  .mainPanel {
+    min-height: 60vh;
+  }
 }
 
 .roleAdmin {

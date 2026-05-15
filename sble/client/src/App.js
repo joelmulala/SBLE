@@ -17,14 +17,10 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import LecturerCoursesPage from './pages/lecturer/LecturerCoursesPage';
 import LecturerEnrollmentPage from './pages/lecturer/LecturerEnrollmentPage';
-import LecturerAssignmentsPage from './pages/lecturer/LecturerAssignmentsPage';
-import LecturerQuizzesPage from './pages/lecturer/LecturerQuizzesPage';
-import LecturerExamsPage from './pages/lecturer/LecturerExamsPage';
-import LecturerMaterialsPage from './pages/lecturer/LecturerMaterialsPage';
 import LecturerPerformancePage from './pages/lecturer/LecturerPerformancePage';
-import StudentMaterialsPage from './pages/student/StudentMaterialsPage';
-import StudentAssignmentsPage from './pages/student/StudentAssignmentsPage';
-import StudentQuizzesPage from './pages/student/StudentQuizzesPage';
+import GradebookPage from './pages/shared/GradebookPage';
+import CalendarPage from './pages/shared/CalendarPage';
+import CourseCommunicationsPage from './pages/shared/CourseCommunicationsPage';
 
 const ProtectedRoute = ({ children, roles }) => {
   const { keycloak, initialized } = useKeycloak();
@@ -86,31 +82,40 @@ export default function App() {
           <Route path="lecturer/dashboard" element={<ProtectedRoute roles={['lecturer', 'admin']}><Dashboard /></ProtectedRoute>} />
           <Route path="lecturer/courses" element={<ProtectedRoute roles={['lecturer', 'admin']}><LecturerCoursesPage /></ProtectedRoute>} />
           <Route path="lecturer/courses/:courseId" element={<ProtectedRoute roles={['lecturer', 'admin']}><CourseDetail /></ProtectedRoute>} />
-          <Route path="lecturer/enrollment" element={<ProtectedRoute roles={['lecturer', 'admin']}><LecturerEnrollmentPage /></ProtectedRoute>} />
-          <Route path="lecturer/assignments" element={<ProtectedRoute roles={['lecturer', 'admin']}><LecturerAssignmentsPage /></ProtectedRoute>} />
-          <Route path="lecturer/quizzes" element={<ProtectedRoute roles={['lecturer', 'admin']}><LecturerQuizzesPage /></ProtectedRoute>} />
-          <Route path="lecturer/exams" element={<ProtectedRoute roles={['lecturer', 'admin']}><LecturerExamsPage /></ProtectedRoute>} />
-          <Route path="lecturer/materials" element={<ProtectedRoute roles={['lecturer', 'admin']}><LecturerMaterialsPage /></ProtectedRoute>} />
-          <Route path="lecturer/performance" element={<ProtectedRoute roles={['lecturer', 'admin']}><LecturerPerformancePage /></ProtectedRoute>} />
+          <Route path="lecturer/enrollment" element={<Navigate to="/lecturer/courses" replace />} />
+          <Route path="lecturer/assignments" element={<Navigate to="/lecturer/courses" replace />} />
+          <Route path="lecturer/quizzes" element={<Navigate to="/lecturer/courses" replace />} />
+          <Route path="lecturer/exams" element={<Navigate to="/lecturer/courses" replace />} />
+          <Route path="lecturer/materials" element={<Navigate to="/lecturer/courses" replace />} />
+          <Route path="lecturer/performance" element={<Navigate to="/lecturer/courses" replace />} />
+          <Route path="lecturer/gradebook" element={<ProtectedRoute roles={['lecturer', 'admin']}><GradebookPage /></ProtectedRoute>} />
+          <Route path="lecturer/calendar" element={<ProtectedRoute roles={['lecturer', 'admin']}><CalendarPage /></ProtectedRoute>} />
           <Route path="student" element={<ProtectedRoute roles={['student']}><Navigate to="/student/dashboard" replace /></ProtectedRoute>} />
           <Route path="student/dashboard" element={<ProtectedRoute roles={['student']}><Dashboard /></ProtectedRoute>} />
           <Route path="student/courses" element={<ProtectedRoute roles={['student']}><Courses /></ProtectedRoute>} />
-          <Route path="student/materials" element={<ProtectedRoute roles={['student']}><StudentMaterialsPage /></ProtectedRoute>} />
-          <Route path="student/assignments" element={<ProtectedRoute roles={['student']}><StudentAssignmentsPage /></ProtectedRoute>} />
-          <Route path="student/quizzes" element={<ProtectedRoute roles={['student']}><StudentQuizzesPage /></ProtectedRoute>} />
+          <Route path="student/materials" element={<Navigate to="/student/courses" replace />} />
+          <Route path="student/assignments" element={<Navigate to="/student/courses" replace />} />
+          <Route path="student/quizzes" element={<Navigate to="/student/courses" replace />} />
+          <Route path="student/exams" element={<Navigate to="/student/courses" replace />} />
+          <Route path="student/gradebook" element={<ProtectedRoute roles={['student']}><GradebookPage /></ProtectedRoute>} />
+          <Route path="student/calendar" element={<ProtectedRoute roles={['student']}><CalendarPage /></ProtectedRoute>} />
           <Route path="student/courses/:courseId" element={<ProtectedRoute roles={['student']}><CourseDetail /></ProtectedRoute>} />
           <Route path="student/courses/:courseId/materials" element={<ProtectedRoute roles={['student']}><Materials /></ProtectedRoute>} />
           <Route path="student/courses/:courseId/assignments" element={<ProtectedRoute roles={['student']}><Assignments /></ProtectedRoute>} />
           <Route path="student/courses/:courseId/quizzes" element={<ProtectedRoute roles={['student']}><Quizzes /></ProtectedRoute>} />
           <Route path="student/courses/:courseId/exams" element={<ProtectedRoute roles={['student']}><Exams /></ProtectedRoute>} />
+          <Route path="student/courses/:courseId/gradebook" element={<ProtectedRoute roles={['student']}><GradebookPage /></ProtectedRoute>} />
+          <Route path="student/courses/:courseId/communications" element={<ProtectedRoute roles={['student']}><CourseCommunicationsPage /></ProtectedRoute>} />
           <Route path="courses" element={<CoursesRouteRedirect />} />
           <Route path="courses/:id" element={<CourseDetailRouteRedirect />} />
-          <Route path="lecturer/courses/:courseId/materials" element={<ProtectedRoute roles={['lecturer', 'admin']}><LecturerMaterialsPage /></ProtectedRoute>} />
+          <Route path="lecturer/courses/:courseId/materials" element={<ProtectedRoute roles={['lecturer', 'admin']}><Materials /></ProtectedRoute>} />
           <Route path="lecturer/courses/:courseId/assignments" element={<ProtectedRoute roles={['lecturer', 'admin']}><Assignments /></ProtectedRoute>} />
           <Route path="lecturer/courses/:courseId/quizzes" element={<ProtectedRoute roles={['lecturer', 'admin']}><Quizzes /></ProtectedRoute>} />
           <Route path="lecturer/courses/:courseId/enrollment" element={<ProtectedRoute roles={['lecturer', 'admin']}><LecturerEnrollmentPage /></ProtectedRoute>} />
           <Route path="lecturer/courses/:courseId/performance" element={<ProtectedRoute roles={['lecturer', 'admin']}><LecturerPerformancePage /></ProtectedRoute>} />
           <Route path="lecturer/courses/:courseId/exams" element={<ProtectedRoute roles={['lecturer', 'admin']}><Exams /></ProtectedRoute>} />
+          <Route path="lecturer/courses/:courseId/gradebook" element={<ProtectedRoute roles={['lecturer', 'admin']}><GradebookPage /></ProtectedRoute>} />
+          <Route path="lecturer/courses/:courseId/communications" element={<ProtectedRoute roles={['lecturer', 'admin']}><CourseCommunicationsPage /></ProtectedRoute>} />
           <Route path="users" element={<ProtectedRoute roles={['admin']}><Users /></ProtectedRoute>} />
           <Route path="rooms" element={<ProtectedRoute roles={['lecturer', 'admin', 'student']}><RoomsList /></ProtectedRoute>} />
           <Route path="room/:roomId" element={<ProtectedRoute roles={['lecturer', 'admin', 'student']}><Room /></ProtectedRoute>} />

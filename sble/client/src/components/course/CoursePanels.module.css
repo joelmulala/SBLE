@@ -1,0 +1,104 @@
+.composeForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.composeActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.threadList {
+  list-style: none;
+  margin: var(--space-5) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.threadItem {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  background: var(--color-surface-muted);
+}
+
+.threadOwn {
+  border-color: color-mix(in srgb, var(--color-brand) 35%, var(--color-border));
+  background: var(--color-brand-soft);
+}
+
+.threadHead {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--fs-0);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-2);
+}
+
+.threadHead strong {
+  color: var(--color-text);
+}
+
+.threadBody {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: var(--lh-loose);
+}
+
+.announcementList {
+  list-style: none;
+  margin: var(--space-5) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.announcementItem {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  background: var(--color-surface);
+}
+
+.announcementPinned {
+  border-color: var(--color-brand);
+  box-shadow: var(--shadow-soft);
+}
+
+.announcementHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.announcementTitle {
+  margin: 0;
+  font-size: var(--fs-2);
+}
+
+.announcementMeta {
+  font-size: var(--fs-00);
+  color: var(--color-text-muted);
+}
+
+.announcementBody {
+  margin: 0;
+  white-space: pre-wrap;
+  color: var(--color-text);
+}
+
+.pinnedBadge {
+  display: inline-block;
+  font-size: var(--fs-00);
+  font-weight: 600;
+  color: var(--color-brand);
+  margin-bottom: var(--space-2);
+}

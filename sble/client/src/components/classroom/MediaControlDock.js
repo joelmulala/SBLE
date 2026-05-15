@@ -76,6 +76,15 @@ function IconPeople() {
   );
 }
 
+function IconNotes() {
+  return (
+    <svg className={styles.svgIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden>
+      <path d="M8 4h8a2 2 0 0 1 2 2v14l-3-2-3 2-3-2-3 2V6a2 2 0 0 1 2-2z" strokeLinejoin="round" />
+      <path d="M9 9h6M9 13h4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function IconHangUp() {
   return (
     <svg className={styles.hangIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
@@ -124,20 +133,18 @@ export default function MediaControlDock({
   participationLocked,
   sidebarOpen,
   sidebarTab,
+  notesOpen = false,
   onOpenChat,
   onTogglePeople,
+  onOpenNotes,
   onToggleMic,
   onToggleCam,
   onToggleShare,
   onToggleRaiseHand,
-  onToggleQuestion,
   raisedHand,
-  hasQuestion,
-  onAckUnderstood,
-  onAckAgree,
-  onRequestPresent,
-  onRequestSpeak,
-  onCancelRequest,
+  participationAck = null,
+  onToggleUnderstood,
+  onToggleAgree,
   onEndOrLeave,
   isLecturer
 }) {
@@ -154,6 +161,7 @@ export default function MediaControlDock({
   const density = dockMicro ? 'micro' : dockNarrow ? 'tight' : 'cozy';
   const chatActive = sidebarOpen && sidebarTab === 'chat';
   const peopleActive = sidebarOpen && sidebarTab === 'participants';
+  const notesActive = notesOpen;
   const showShare = role === 'lecturer';
 
   return (
@@ -178,6 +186,15 @@ export default function MediaControlDock({
           >
             <IconPeople />
           </DockItem>
+          <DockItem
+            label="Notes"
+            pressed={notesActive}
+            activeClass={styles.dockItemActive}
+            onClick={onOpenNotes}
+            title="Session notes"
+          >
+            <IconNotes />
+          </DockItem>
         </div>
 
         <div className={styles.divider} aria-hidden />
@@ -186,16 +203,11 @@ export default function MediaControlDock({
           <ReactionPopover
             dockLayout
             raisedHand={raisedHand}
-            hasQuestion={hasQuestion}
+            participationAck={participationAck}
             participationLocked={participationLocked}
-            role={role}
             onToggleRaiseHand={onToggleRaiseHand}
-            onAckUnderstood={onAckUnderstood}
-            onAckAgree={onAckAgree}
-            onToggleQuestion={onToggleQuestion}
-            onRequestPresent={onRequestPresent}
-            onRequestSpeak={onRequestSpeak}
-            onCancelRequest={onCancelRequest}
+            onToggleUnderstood={onToggleUnderstood}
+            onToggleAgree={onToggleAgree}
             compact={dockNarrow || dockMicro}
           />
         </div>

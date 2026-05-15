@@ -100,4 +100,28 @@ export function AuthProvider({ children }) {
   );
 }
 
-export const useKeycloak = () => useContext(AuthContext);
+/** Primary auth hook — JWT session from `/api/auth/login`. */
+export function useAuth() {
+  const { keycloak, initialized, login, logout, user } = useContext(AuthContext);
+  return {
+    user,
+    token: keycloak.token,
+    authenticated: keycloak.authenticated,
+    initialized,
+    login,
+    logout,
+    hasRole: (role) => keycloak.hasRealmRole(role)
+  };
+}
+
+/** @deprecated Use `useAuth()` — kept for existing `keycloak.hasRealmRole` call sites. */
+export function useKeycloak() {
+  const ctx = useContext(AuthContext);
+  return {
+    keycloak: ctx.keycloak,
+    initialized: ctx.initialized,
+    login: ctx.login,
+    logout: ctx.logout,
+    user: ctx.user
+  };
+}

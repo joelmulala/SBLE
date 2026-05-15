@@ -548,6 +548,5 @@ router.patch('/:roomToken/close', ...guard, requireLecturer,
   }
 });
 
-logger.info('[SBLE DEBUG] rooms router module loaded', { file: require('path').resolve(__filename) });
 
 module.exports = router;

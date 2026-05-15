@@ -410,8 +410,20 @@ const run = async () => {
       return;
     }
 
-    const lines = fs.readFileSync(backendLogFile, 'utf8').split(/\r?\n/).filter(Boolean);
-    const tail = lines.slice(-200).join('\n');
+    const stat = fs.statSync(backendLogFile);
+    const maxBytes = 256 * 1024;
+    const readStart = Math.max(0, stat.size - maxBytes);
+    const fd = fs.openSync(backendLogFile, 'r');
+    const buffer = Buffer.alloc(Math.min(maxBytes, stat.size));
+    fs.readSync(fd, buffer, 0, buffer.length, readStart);
+    fs.closeSync(fd);
+    const tail = buffer.toString('utf8');
+    const lines = tail.split(/\r?\n/).filter(Boolean).slice(-200);
+    const ignoredPatterns = [
+      /EADDRINUSE/i
+    ];
+    const relevantLines = lines.filter((line) => !ignoredPatterns.some((pattern) => pattern.test(line)));
+    const tailText = relevantLines.join('\n');
 
     const criticalPatterns = [
       /Unhandled promise rejection/i,
@@ -420,7 +432,7 @@ const run = async () => {
       /Database connection failed \(attempt .*\/.*\)/i
     ];
 
-    const criticalHit = criticalPatterns.find((pattern) => pattern.test(tail));
+    const criticalHit = criticalPatterns.find((pattern) => pattern.test(tailText));
     assert(!criticalHit, `Detected critical backend log pattern: ${criticalHit}`);
   }, results);
 

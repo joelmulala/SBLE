@@ -1,0 +1,21 @@
+# systemd unit — bare-metal API placeholder
+# Install:
+#   sudo cp deploy/sble-api.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now sble-api
+
+[Unit]
+Description=SBLE API (Node.js)
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/sble/server
+EnvironmentFile=/opt/sble/server/.env
+ExecStart=/usr/bin/node src/index.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

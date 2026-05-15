@@ -13,6 +13,8 @@ const initQuizTimer = () => {
       const now = new Date();
       const openAttempts = await QuizAttempt.findAll({
         where: { submitted_at: { [Op.is]: null } },
+        limit: 200,
+        order: [['started_at', 'ASC']],
         include: [{
           model: Quiz,
           attributes: ['id', 'time_limit_minutes', 'created_at', 'is_published'],

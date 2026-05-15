@@ -61,6 +61,41 @@ export default function useNotifications() {
     es.addEventListener('live-class-ended', handleLiveClassEnded);
     es.addEventListener('live_class_ended', handleLiveClassEnded);
 
+    es.addEventListener('announcement', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        setNotifications((prev) => [{
+          id: Date.now(),
+          type: 'announcement',
+          title: data.title || 'New announcement',
+          message: data.message || data.title,
+          courseId: data.courseId || data.course_id,
+          announcementId: data.announcementId || data.announcement_id,
+          ...data
+        }, ...prev]);
+      } catch (_) {
+        /* ignore */
+      }
+    });
+
+    es.addEventListener('discussion-reply', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        setNotifications((prev) => [{
+          id: Date.now(),
+          type: 'discussion_reply',
+          title: 'Discussion reply',
+          message: data.message || 'New reply in course discussion',
+          courseId: data.courseId || data.course_id,
+          discussionId: data.discussionId || data.discussion_id,
+          parentId: data.parentId || data.parent_id,
+          ...data
+        }, ...prev]);
+      } catch (_) {
+        /* ignore */
+      }
+    });
+
     es.onerror = () => es.close();
 
     return () => es.close();

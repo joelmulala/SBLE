@@ -13,33 +13,15 @@ function IconSmile() {
 }
 
 /**
- * Academic reaction tray (raise hand, acknowledgements). Opens above the trigger.
- * @param {{
- *   participationLocked?: boolean,
- *   role?: 'lecturer' | 'student',
- *   onToggleRaiseHand: () => void,
- *   onAckUnderstood: () => void,
- *   onAckAgree: () => void,
- *   onToggleQuestion?: () => void,
- *   onRequestPresent?: () => void,
- *   onRequestSpeak?: () => void,
- *   onCancelRequest?: () => void,
- *   compact?: boolean,
- *   dockLayout?: boolean
- * }} props
+ * Compact academic reactions: raise hand, understood, agree (mockup-aligned).
  */
 export default function ReactionPopover({
   raisedHand = false,
-  hasQuestion = false,
+  participationAck = null,
   participationLocked = false,
-  role = 'student',
   onToggleRaiseHand,
-  onAckUnderstood,
-  onAckAgree,
-  onToggleQuestion,
-  onRequestPresent,
-  onRequestSpeak,
-  onCancelRequest,
+  onToggleUnderstood,
+  onToggleAgree,
   compact = false,
   dockLayout = false
 }) {
@@ -59,8 +41,10 @@ export default function ReactionPopover({
     };
   }, [open]);
 
-  const showStudentLinks = role === 'student' && onRequestPresent && onRequestSpeak && onCancelRequest;
-  const showIndicatorDot = dockLayout && (raisedHand || hasQuestion || open);
+  const understoodActive = participationAck === 'understood';
+  const agreeActive = participationAck === 'agree';
+  const reactionActive = raisedHand || understoodActive || agreeActive;
+  const showIndicatorDot = dockLayout && (reactionActive || open);
   const triggerClass = dockLayout
     ? [styles.triggerDock, open && styles.triggerDockOpen, compact && styles.triggerDockCompact].filter(Boolean).join(' ')
     : [styles.trigger, open && styles.triggerOpen, compact && styles.triggerCompact].filter(Boolean).join(' ');
@@ -68,11 +52,52 @@ export default function ReactionPopover({
   return (
     <div className={styles.wrap} ref={rootRef}>
       {showIndicatorDot ? <span className={styles.indicatorDot} aria-hidden /> : null}
+      {open ? (
+        <div className={styles.trayCompact} role="menu" aria-label="Reactions">
+          <button
+            type="button"
+            className={[styles.emojiBtn, raisedHand && styles.emojiBtnActive].filter(Boolean).join(' ')}
+            role="menuitem"
+            disabled={participationLocked}
+            title={raisedHand ? 'Lower hand' : 'Raise hand'}
+            aria-label={raisedHand ? 'Lower hand' : 'Raise hand'}
+            aria-pressed={raisedHand}
+            onClick={() => onToggleRaiseHand?.()}
+          >
+            🤚
+          </button>
+          <button
+            type="button"
+            className={[styles.emojiBtn, understoodActive && styles.emojiBtnActive].filter(Boolean).join(' ')}
+            role="menuitem"
+            disabled={participationLocked}
+            title={understoodActive ? 'Remove understood' : 'Understood'}
+            aria-label={understoodActive ? 'Remove understood' : 'Understood'}
+            aria-pressed={understoodActive}
+            onClick={() => onToggleUnderstood?.()}
+          >
+            ✅
+          </button>
+          <button
+            type="button"
+            className={[styles.emojiBtn, agreeActive && styles.emojiBtnActive].filter(Boolean).join(' ')}
+            role="menuitem"
+            disabled={participationLocked}
+            title={agreeActive ? 'Remove agree' : 'Agree'}
+            aria-label={agreeActive ? 'Remove agree' : 'Agree'}
+            aria-pressed={agreeActive}
+            onClick={() => onToggleAgree?.()}
+          >
+            🤝
+          </button>
+        </div>
+      ) : null}
       <button
         type="button"
-        className={triggerClass}
+        className={[triggerClass, reactionActive && styles.triggerDockReactionActive].filter(Boolean).join(' ')}
         aria-expanded={open}
         aria-haspopup="true"
+        aria-pressed={reactionActive}
         disabled={participationLocked}
         title="Reactions"
         onClick={() => setOpen((o) => !o)}
@@ -82,114 +107,15 @@ export default function ReactionPopover({
             <span className={styles.triggerDockIconRing}>
               <IconSmile />
             </span>
-            <span className={styles.triggerDockLabel}>Reactions</span>
+            <span className={styles.triggerDockLabel}>React</span>
           </>
         ) : (
           <>
             <IconSmile />
-            <span className={styles.triggerLabel}>Reactions</span>
+            <span className={styles.triggerLabel}>React</span>
           </>
         )}
       </button>
-      {open ? (
-        <div className={styles.tray} role="menu">
-          <button
-            type="button"
-            className={[styles.trayBtn, raisedHand && styles.trayBtnActive].filter(Boolean).join(' ')}
-            role="menuitem"
-            disabled={participationLocked}
-            onClick={() => {
-              onToggleRaiseHand();
-              setOpen(false);
-            }}
-          >
-            <span className={styles.trayGlyph} aria-hidden>🤚</span>
-            <span className={styles.trayText}>{raisedHand ? 'Lower hand' : 'Raise hand'}</span>
-          </button>
-          <button
-            type="button"
-            className={styles.trayBtn}
-            role="menuitem"
-            disabled={participationLocked}
-            onClick={() => {
-              onAckUnderstood();
-              setOpen(false);
-            }}
-          >
-            <span className={styles.trayGlyph} aria-hidden>✅</span>
-            <span className={styles.trayText}>Understood</span>
-          </button>
-          <button
-            type="button"
-            className={styles.trayBtn}
-            role="menuitem"
-            disabled={participationLocked}
-            onClick={() => {
-              onAckAgree();
-              setOpen(false);
-            }}
-          >
-            <span className={styles.trayGlyph} aria-hidden>🤝</span>
-            <span className={styles.trayText}>Agree</span>
-          </button>
-          {onToggleQuestion ? (
-            <button
-              type="button"
-              className={[styles.trayBtn, styles.trayBtnSubtle, hasQuestion && styles.trayBtnActive].filter(Boolean).join(' ')}
-              role="menuitem"
-              disabled={participationLocked}
-              onClick={() => {
-                onToggleQuestion();
-                setOpen(false);
-              }}
-            >
-              <span className={styles.trayText}>{hasQuestion ? 'Clear question' : 'I have a question'}</span>
-            </button>
-          ) : null}
-          {showStudentLinks ? (
-            <div className={styles.trayDivider} role="presentation" />
-          ) : null}
-          {showStudentLinks ? (
-            <div className={styles.trayStudent}>
-              <button
-                type="button"
-                className={styles.trayLink}
-                role="menuitem"
-                disabled={participationLocked}
-                onClick={() => {
-                  onRequestPresent();
-                  setOpen(false);
-                }}
-              >
-                Request to present
-              </button>
-              <button
-                type="button"
-                className={styles.trayLink}
-                role="menuitem"
-                disabled={participationLocked}
-                onClick={() => {
-                  onRequestSpeak();
-                  setOpen(false);
-                }}
-              >
-                Request to speak
-              </button>
-              <button
-                type="button"
-                className={styles.trayLink}
-                role="menuitem"
-                onClick={() => {
-                  onCancelRequest();
-                  setOpen(false);
-                }}
-              >
-                Clear requests
-              </button>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
     </div>
   );
 }

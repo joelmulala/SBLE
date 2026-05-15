@@ -43,7 +43,9 @@ export default function ParticipantTile({
   const audioMountRef = useRef(null);
   const [, version] = useReducer((n) => n + 1, 0);
 
+  const camPub = participant.getTrackPublication(Track.Source.Camera);
   const screenPub = participant.getTrackPublication(Track.Source.ScreenShare);
+  const hasCameraTrack = Boolean(camPub?.track);
   const hasScreen = Boolean(screenPub?.track);
 
   useEffect(() => {
@@ -89,13 +91,13 @@ export default function ParticipantTile({
   useEffect(() => {
     const camEl = camRef.current;
     const screenEl = screenRef.current;
-    const camPub = participant.getTrackPublication(Track.Source.Camera);
+    const camPublication = participant.getTrackPublication(Track.Source.Camera);
     const screenPubInner = participant.getTrackPublication(Track.Source.ScreenShare);
     const attached = [];
 
-    if (camPub?.track && camEl) {
-      camPub.track.attach(camEl);
-      attached.push({ track: camPub.track, el: camEl });
+    if (camPublication?.track && camEl) {
+      camPublication.track.attach(camEl);
+      attached.push({ track: camPublication.track, el: camEl });
     }
     if (screenPubInner?.track && screenEl) {
       screenPubInner.track.attach(screenEl);
@@ -141,6 +143,7 @@ export default function ParticipantTile({
 
   const name = participant.name || participant.identity || 'Participant';
   const rLabel = roleLabel(participant.metadata);
+  const avatarInitial = (name.trim().charAt(0) || '?').toUpperCase();
 
   const rootClass = [
     styles.tile,
@@ -155,14 +158,20 @@ export default function ParticipantTile({
 
   return (
     <div className={rootClass}>
-      {isLecturerRole ? (
+      {isLecturerRole && (variant === 'grid' || variant === 'strip' || variant === 'dock') ? (
         <span className={styles.lecturerBadge} title="Instructor">
           Instructor
         </span>
       ) : null}
+      {!hasCameraTrack ? (
+        <div className={styles.tileAvatar} aria-hidden>
+          {avatarInitial}
+        </div>
+      ) : null}
       <video
         ref={camRef}
-        className={styles.tileVideo}
+        className={[styles.tileVideo, !hasCameraTrack && styles.tileVideoHidden].filter(Boolean).join(' ')}
+        autoPlay
         playsInline
         muted={isLocalParticipant(participant)}
       />

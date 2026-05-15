@@ -38,6 +38,48 @@
 .classroomRoot:fullscreen .videoShell {
   flex: 1;
   min-height: 0;
+  border-radius: 0;
+}
+
+.fullscreenBtn {
+  appearance: none;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.fullscreenBtn svg {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.fullscreenBtn:hover {
+  border-color: var(--color-brand);
+  color: var(--color-brand);
+}
+
+.stageReconnect {
+  position: absolute;
+  top: 4.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 12;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #fef3c7;
+  background: rgba(120, 53, 15, 0.85);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  pointer-events: none;
 }
 
 /* —— Top bar —— */
@@ -233,15 +275,23 @@
 .videoShell {
   flex: 1;
   position: relative;
-  min-height: min(72vh, 720px);
-  background: #0a0f18;
+  min-height: min(78vh, 780px);
+  background: linear-gradient(165deg, #0c1220 0%, #070b12 55%, #0a1018 100%);
   display: flex;
   flex-direction: column;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  overflow: hidden;
 }
 
 .videoShell:fullscreen {
   min-height: 100vh;
-  background: #0a0f18;
+  border-radius: 0;
+  background: #070b12;
+}
+
+.videoShell:fullscreen .videoWell,
+.classroomRoot:fullscreen .videoShell .videoWell {
+  min-height: 100%;
 }
 
 .videoShell:fullscreen .videoWell {

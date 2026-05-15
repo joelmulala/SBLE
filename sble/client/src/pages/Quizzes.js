@@ -31,6 +31,7 @@ import {
   SelectInput,
   QueueItem
 } from '../components/assessment/AssessmentPrimitives';
+import CoursePageFrame from '../components/workspace/CoursePageFrame';
 import s from '../components/assessment/AssessmentPrimitives.module.css';
 
 const ensureFourOptions = (options = []) => {
@@ -649,6 +650,7 @@ export default function Quizzes() {
 
   return (
     <AssessmentShell wide={isLecturer}>
+      <CoursePageFrame courseId={courseId} pageTitle="Quizzes">
       <AssessmentPageHeader
         kicker={isLecturer ? 'Teaching · quizzes' : 'Learning · quizzes'}
         title="Quizzes"
@@ -875,6 +877,7 @@ export default function Quizzes() {
       {!loading && quizzes.length === 0 ? (
         <AssessmentEmpty>No quizzes in this course yet.</AssessmentEmpty>
       ) : null}
+      </CoursePageFrame>
     </AssessmentShell>
   );
 }

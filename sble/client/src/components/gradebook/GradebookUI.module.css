@@ -1,0 +1,419 @@
+/* Academic gradebook UI — Canvas/Moodle-inspired, SBLE tokens */
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.toolbarGroup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.filterChip {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: var(--fs-0);
+  font-weight: 500;
+  padding: var(--space-2) var(--space-4);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.filterChip:hover {
+  border-color: var(--color-brand);
+  color: var(--color-brand);
+}
+
+.filterChipActive {
+  border-color: var(--color-brand);
+  background: var(--color-brand-soft);
+  color: var(--color-brand);
+  font-weight: 600;
+}
+
+.summaryGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--space-4);
+}
+
+.summaryTile {
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-muted);
+}
+
+.summaryTileLabel {
+  font-size: var(--fs-00);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-2);
+}
+
+.summaryTileValue {
+  font-size: var(--fs-3);
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: 1.2;
+}
+
+.summaryTileHint {
+  font-size: var(--fs-00);
+  color: var(--color-text-faint);
+  margin-top: var(--space-2);
+}
+
+.progressBlock {
+  margin-top: var(--space-2);
+}
+
+.progressLabel {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--fs-00);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-1);
+}
+
+.progressTrack {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-border);
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--color-brand);
+  transition: width 0.35s ease;
+}
+
+.progressFillSuccess {
+  background: var(--color-positive);
+}
+
+.progressFillWarn {
+  background: var(--color-warn);
+}
+
+.progressFillDanger {
+  background: var(--color-danger);
+}
+
+.matrixCard {
+  margin: calc(-1 * var(--space-4)) calc(-1 * var(--space-5)) calc(-1 * var(--space-4));
+  overflow: hidden;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+
+.matrixHeader {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-muted);
+}
+
+.matrixScroll {
+  overflow: auto;
+  max-height: min(70vh, 42rem);
+}
+
+.gradeTable {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--fs-0);
+}
+
+.gradeTable thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--color-surface);
+  border-bottom: 2px solid var(--color-border-strong);
+  padding: var(--space-3) var(--space-3);
+  font-size: var(--fs-00);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  text-align: left;
+}
+
+.gradeTable thead th.groupHeader {
+  text-align: center;
+  background: color-mix(in srgb, var(--color-brand-soft) 60%, var(--color-surface));
+  color: var(--color-brand);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.colStudent {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  min-width: 11rem;
+  max-width: 14rem;
+  background: var(--color-surface);
+  box-shadow: 2px 0 6px rgba(15, 23, 42, 0.04);
+}
+
+.gradeTable tbody td {
+  border-bottom: 1px solid var(--color-border);
+  padding: var(--space-3);
+  vertical-align: middle;
+  background: var(--color-surface);
+}
+
+.gradeTable tbody tr:hover td {
+  background: var(--color-surface-muted);
+}
+
+.gradeTable tbody tr:hover td.colStudent {
+  background: var(--color-surface-muted);
+}
+
+.rowSelected td {
+  background: var(--color-brand-soft) !important;
+}
+
+.rowAtRisk td.colStudent {
+  border-left: 3px solid var(--color-danger);
+}
+
+.totalsCol {
+  font-weight: 600;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--color-surface-muted) 80%, var(--color-surface)) !important;
+}
+
+.studentName {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.studentId {
+  font-size: var(--fs-00);
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+.cellScore {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.cellMuted {
+  color: var(--color-text-faint);
+  font-size: var(--fs-00);
+}
+
+.colLink {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: var(--fs-00);
+}
+
+.colLink:hover {
+  color: var(--color-brand);
+  text-decoration: underline;
+}
+
+.colDue {
+  display: block;
+  font-size: var(--fs-00);
+  font-weight: 400;
+  color: var(--color-text-faint);
+  margin-top: 2px;
+}
+
+.gradeCell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 4.5rem;
+}
+
+.letterBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  height: 2rem;
+  border-radius: var(--radius-sm);
+  font-weight: 700;
+  font-size: var(--fs-1);
+}
+
+.letterSuccess {
+  background: color-mix(in srgb, var(--color-positive) 15%, white);
+  color: var(--color-positive);
+}
+
+.letterWarn {
+  background: color-mix(in srgb, var(--color-warn) 18%, white);
+  color: #b45309;
+}
+
+.letterDanger {
+  background: color-mix(in srgb, var(--color-danger) 12%, white);
+  color: var(--color-danger);
+}
+
+.detailLayout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-6);
+}
+
+@media (min-width: 960px) {
+  .detailLayout {
+    grid-template-columns: minmax(0, 1.4fr) minmax(18rem, 0.8fr);
+  }
+}
+
+.heroCard {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-5);
+  align-items: center;
+  padding: var(--space-6);
+}
+
+.heroScore {
+  font-size: var(--fs-5);
+  font-weight: 800;
+  line-height: 1;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.heroLetter {
+  font-size: var(--fs-4);
+  font-weight: 700;
+  margin-top: var(--space-2);
+}
+
+.courseCards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  gap: var(--space-4);
+}
+
+.courseCard {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  background: var(--color-surface);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.courseCard:hover {
+  border-color: var(--color-brand);
+  box-shadow: var(--shadow-soft);
+}
+
+.assessmentCard {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  background: var(--color-surface);
+}
+
+.assessmentCardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.assessmentTitle {
+  margin: 0;
+  font-size: var(--fs-1);
+  font-weight: 600;
+}
+
+.feedbackPanel {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-brand-soft);
+  border-left: 3px solid var(--color-brand);
+  font-size: var(--fs-0);
+  color: var(--color-text);
+  line-height: var(--lh-loose);
+}
+
+.placeholderRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-3) 0;
+  border-bottom: 1px dashed var(--color-border);
+  font-size: var(--fs-0);
+  color: var(--color-text-muted);
+}
+
+.placeholderRow:last-child {
+  border-bottom: none;
+}
+
+.navLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.navLink {
+  font-size: var(--fs-0);
+  font-weight: 600;
+  color: var(--color-brand);
+  text-decoration: none;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.navLink:hover {
+  background: var(--color-brand-soft);
+  border-color: var(--color-brand);
+}
+
+.emptyHint {
+  padding: var(--space-8);
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.categoryBlock {
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.categoryTitle {
+  margin: 0 0 var(--space-3);
+  font-size: var(--fs-2);
+  font-weight: 600;
+}

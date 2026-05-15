@@ -1,19 +1,18 @@
-const keycloak = require('../config/keycloak');
+const authGuard = require('../config/authGuard');
 const { AuditLog, Course, Enrollment } = require('../models');
+const { resolvePrimaryRole } = require('../utils/validation');
 
-// Protect route — authenticated via Keycloak in production or JWT in dev fallback mode
-const protect = keycloak.protect();
-
-const getUserRole = (req) => req.user?.role
-  || req.user?.roles?.[0]
-  || req.kauth?.grant?.access_token?.content?.realm_access?.roles?.[0]
-  || null;
+const protect = authGuard.protect();
 
 const getUserRoles = (req) => {
-  const userRole = getUserRole(req);
   const directRoles = req.user?.roles || (req.user?.role ? [req.user.role] : []);
   const tokenRoles = req.kauth?.grant?.access_token?.content?.realm_access?.roles || [];
-  return [...new Set([...(userRole ? [userRole] : []), ...directRoles, ...tokenRoles])];
+  return [...new Set([...directRoles, ...tokenRoles])];
+};
+
+const getUserRole = (req) => {
+  if (req.user?.role) return req.user.role;
+  return resolvePrimaryRole(getUserRoles(req));
 };
 
 const hasAnyRole = (req, ...roles) => {
@@ -102,7 +101,7 @@ const attachUser = (req, res, next) => {
       id: token.sub,
       email: token.email,
       name: token.name,
-      role: roles[0] || null,
+      role: resolvePrimaryRole(roles),
       roles
     };
   }

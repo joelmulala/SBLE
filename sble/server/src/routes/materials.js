@@ -6,6 +6,7 @@ const { attachUser, requireLecturer, authorizeCourseAccess, audit } = require('.
 const { upload, UPLOAD_DIR } = require('../services/storage/uploadService');
 const { encryptFile, decryptFileToStream } = require('../services/encryption/fileEncryption');
 const { Material, Course, Enrollment } = require('../models');
+const { requireNonemptyTitle } = require('../utils/validation');
 
 const guard = [keycloak.protect(), attachUser];
 
@@ -64,8 +65,12 @@ router.post('/upload', ...guard, requireLecturer,
   audit('UPLOAD_MATERIAL', 'material'),
   async (req, res) => {
     try {
+      if (!req.file?.path) {
+        return res.status(400).json({ error: 'A file is required' });
+      }
+
       const courseId = req.body.courseId;
-      const { title } = req.body;
+      const title = requireNonemptyTitle(req.body.title);
       const encryptedPath = await encryptFile(req.file.path);
 
       const material = await Material.create({
