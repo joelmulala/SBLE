@@ -13,4 +13,14 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+  animation: stageFadeIn 0.35s ease-out;
+}
+
+@keyframes stageFadeIn {
+  from {
+    opacity: 0.6;
+  }
+  to {
+    opacity: 1;
+  }
 }

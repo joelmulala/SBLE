@@ -1,7 +1,6 @@
 import React, { useMemo } from 'react';
 import MediaStateIndicators from './MediaStateIndicators';
 import ParticipantStatusBadges from './ParticipantStatusBadges';
-import ParticipantModerationActions from './ParticipantModerationActions';
 import { sortParticipantsForClassroom } from '../../services/classroom/classroomParticipantUtils';
 import styles from './ParticipantRoster.module.css';
 
@@ -101,12 +100,25 @@ export default function ParticipantRoster({
           </div>
           </div>
           {showModerationActions && instructorView && !lect && !p.isLocal && typeof onModerateParticipant === 'function' ? (
-            <div className={styles.rowMod}>
-              <ParticipantModerationActions
-                participantId={String(p.id)}
-                onAction={onModerateParticipant}
-                disabled={moderationDisabled}
-              />
+            <div className={styles.rowActions}>
+              <button
+                type="button"
+                className={styles.quickMute}
+                disabled={moderationDisabled || p.micOn === false}
+                onClick={() => onModerateParticipant(String(p.id), 'mute_microphone')}
+              >
+                Mute mic
+              </button>
+              {p.screenSharing ? (
+                <button
+                  type="button"
+                  className={styles.quickAction}
+                  disabled={moderationDisabled}
+                  onClick={() => onModerateParticipant(String(p.id), 'stop_screen_share')}
+                >
+                  Stop share
+                </button>
+              ) : null}
             </div>
           ) : null}
         </li>

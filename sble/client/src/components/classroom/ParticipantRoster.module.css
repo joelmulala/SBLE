@@ -31,10 +31,38 @@
   width: 100%;
 }
 
-.rowMod {
+.rowActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
   width: 100%;
   padding-top: 0.35rem;
   border-top: 1px solid rgba(226, 232, 240, 0.9);
+}
+
+.quickMute,
+.quickAction {
+  appearance: none;
+  border-radius: 6px;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.04);
+  color: #334155;
+}
+
+.quickMute:hover:not(:disabled),
+.quickAction:hover:not(:disabled) {
+  border-color: rgba(15, 118, 110, 0.45);
+  color: #0f766e;
+}
+
+.quickMute:disabled,
+.quickAction:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .rowLocal {

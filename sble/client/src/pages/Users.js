@@ -133,7 +133,11 @@ export default function Users() {
     setMessage('');
     try {
       const res = await api.post(`/users/${user.id}/reset-password`);
-      setMessage(`Default lecturer password for ${user.full_name}: ${res.data?.default_password}`);
+      setMessage(
+        res.data?.message
+          ? `${res.data.message} (${user.full_name}: ${res.data?.default_password})`
+          : `Default lecturer password for ${user.full_name}: ${res.data?.default_password}`
+      );
     } catch (err) {
       setError(err?.response?.data?.error || 'Failed to fetch lecturer default password');
     }

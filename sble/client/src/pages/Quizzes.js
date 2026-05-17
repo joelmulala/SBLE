@@ -1,10 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import api from '../config/api';
-import { validateQuizQuestionsForPublishClient, totalDurationMinutesFromForm } from '../utils/quizIntegrity';
+import { validateQuizQuestionsForPublishClient, buildPublishReadiness, totalDurationMinutesFromForm } from '../utils/quizIntegrity';
 import {
   resolveCourseAccessMessage,
-  formatSeconds,
   getStudentQuizUiState,
   useAssessmentRoles
 } from '../assessment';
@@ -32,7 +31,20 @@ import {
   QueueItem
 } from '../components/assessment/AssessmentPrimitives';
 import CoursePageFrame from '../components/workspace/CoursePageFrame';
+import QuizTakingWorkspace from '../components/quizzes/QuizTakingWorkspace';
+import PublishValidationPanel from '../components/quizzes/PublishValidationPanel';
+import QuizEmptyIllustration from '../components/quizzes/QuizEmptyIllustration';
+import qstyles from '../components/quizzes/AssessmentQuiz.module.css';
 import s from '../components/assessment/AssessmentPrimitives.module.css';
+
+function computeQuizParticipantStats(participants = []) {
+  const submitted = participants.filter((p) => p.submitted_at).length;
+  const scores = participants.filter((p) => p.score != null).map((p) => Number(p.score));
+  const avg = scores.length
+    ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10
+    : null;
+  return { submitted, total: participants.length, avg };
+}
 
 const ensureFourOptions = (options = []) => {
   const normalized = Array.isArray(options) ? options.map((option) => String(option ?? '')) : [];
@@ -90,8 +102,6 @@ export default function Quizzes() {
   const [loadingQuestions, setLoadingQuestions] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [secondsLeft, setSecondsLeft] = useState(null);
-  const autoSaveTimerRef = useRef(null);
 
   const draftQuizId = searchParams.get('draftQuizId');
   const createMode = searchParams.get('create') === '1';
@@ -280,27 +290,6 @@ export default function Quizzes() {
     }
   };
 
-  useEffect(() => {
-    if (!activeQuiz || activeQuiz.attempt_id == null || result) return undefined;
-    const expMs = activeQuiz.attempt_expires_at ? new Date(activeQuiz.attempt_expires_at).getTime() : null;
-    if (!expMs) return undefined;
-    const tick = () => setSecondsLeft(Math.max(0, Math.floor((expMs - Date.now()) / 1000)));
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [activeQuiz?.attempt_id, activeQuiz?.attempt_expires_at, activeQuiz?.id, result]);
-
-  useEffect(() => {
-    if (!activeQuiz?.attempt_id || result) return undefined;
-    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-    autoSaveTimerRef.current = setTimeout(() => {
-      api.put(`/quizzes/${activeQuiz.id}/attempt`, { answers }).catch(() => {});
-    }, 1500);
-    return () => {
-      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-    };
-  }, [answers, activeQuiz?.attempt_id, activeQuiz?.id, result]);
-
   const createQuiz = async (e) => {
     e.preventDefault();
     setError('');
@@ -401,7 +390,7 @@ export default function Quizzes() {
 
       const res = await api.get(`/quizzes/${quizId}`);
       setActiveQuiz(res.data);
-      setAnswers({});
+      setAnswers(res.data?.attempt_answers && typeof res.data.attempt_answers === 'object' ? res.data.attempt_answers : {});
       setResult(null);
     } catch (err) {
       const payload = err?.response?.data;
@@ -422,56 +411,6 @@ export default function Quizzes() {
         });
       }
       setError(resolveCourseAccessMessage(err, payload?.error || 'Cannot open this quiz right now.'));
-    }
-  };
-
-  const submitQuiz = async () => {
-    if (!activeQuiz || !Array.isArray(activeQuiz.QuizQuestions) || activeQuiz.QuizQuestions.length === 0) {
-      setError('This quiz is not available yet');
-      return;
-    }
-
-    const totalMarks = activeQuiz.QuizQuestions.reduce((sum, question) => sum + (Number(question.marks) || 1), 0);
-
-    setSubmitting(true);
-    setError('');
-    try {
-      const res = await api.post(`/quizzes/${activeQuiz.id}/attempt`, { answers });
-      const score = Number(res.data?.score ?? 0);
-      updateQuizAttempt(activeQuiz.id, {
-        id: res.data?.attempt?.id || activeQuiz.attempt_id || null,
-        score,
-        submitted_at: res.data?.attempt?.submitted_at || new Date().toISOString()
-      });
-      setResult({
-        ...res.data,
-        score,
-        totalMarks: Number(res.data?.totalMarks ?? totalMarks),
-        correctAnswers: Array.isArray(res.data?.correctAnswers) ? res.data.correctAnswers : [],
-        feedback: Array.isArray(res.data?.feedback) ? res.data.feedback : []
-      });
-    } catch (err) {
-      const payload = err?.response?.data;
-      if (payload?.attempt_id || Number.isFinite(Number(payload?.score))) {
-        const score = Number(payload.score ?? 0);
-        updateQuizAttempt(activeQuiz.id, {
-          id: payload?.attempt_id || activeQuiz.attempt_id || null,
-          score,
-          submitted_at: payload?.submitted_at || new Date().toISOString()
-        });
-        setResult({
-          ...payload,
-          score,
-          totalMarks: Number(payload?.totalMarks ?? totalMarks),
-          correctAnswers: Array.isArray(payload?.correctAnswers) ? payload.correctAnswers : [],
-          feedback: Array.isArray(payload?.feedback) ? payload.feedback : [],
-          auto_graded: true,
-          auto_submitted: Boolean(payload?.auto_submitted)
-        });
-      }
-      setError(resolveCourseAccessMessage(err, payload?.error || 'Failed to submit quiz.'));
-    } finally {
-      setSubmitting(false);
     }
   };
 
@@ -504,150 +443,27 @@ export default function Quizzes() {
   };
 
   if (activeQuiz) {
-    const hasActiveQuestions = Array.isArray(activeQuiz.QuizQuestions) && activeQuiz.QuizQuestions.length > 0;
-    const timerClass = secondsLeft == null ? '' : secondsLeft < 60 ? s.timerUrgent : secondsLeft < 300 ? s.timerWarn : s.timerOk;
-
     return (
       <AssessmentShell>
-        <div className={s.attemptShell}>
-          <AssessmentPageHeader
-            kicker={isStudent ? 'Quiz attempt' : 'Preview'}
-            title={activeQuiz.title}
-            lead={`Time limit ${activeQuiz.time_limit_minutes} minutes · server enforced`}
-            toolbar={
-              secondsLeft != null ? (
-                <StatusBadge variant={secondsLeft < 60 ? 'danger' : secondsLeft < 300 ? 'warning' : 'success'}>
-                  {formatSeconds(secondsLeft)} left
-                </StatusBadge>
-              ) : null
-            }
-          />
-
-          {secondsLeft != null ? <p className={timerClass}>Time remaining: {formatSeconds(secondsLeft)}</p> : null}
-
-          {!hasActiveQuestions ? (
-            <AssessmentAlert type="warn">This quiz is not available yet.</AssessmentAlert>
-          ) : null}
-
-          {activeQuiz.QuizQuestions?.map((q, i) => (
-            <div key={q.id} className={s.questionBlock}>
-              <p className={s.questionTitle}>
-                {i + 1}. {q.question_text}{' '}
-                <span className={s.meta}>
-                  ({q.marks} mark{q.marks > 1 ? 's' : ''})
-                </span>
-              </p>
-
-              {q.question_type === 'mcq' && q.options?.map((opt, oi) => (
-                <label key={oi} className={s.optionLabel}>
-                  <input
-                    type="radio"
-                    name={`q_${q.id}`}
-                    value={opt}
-                    checked={answers[q.id] === opt}
-                    onChange={() => setAnswers((prev) => ({ ...prev, [q.id]: opt }))}
-                  />
-                  {' '}
-                  {opt}
-                </label>
-              ))}
-
-              {q.question_type === 'true_false' && ['True', 'False'].map((opt) => (
-                <label key={opt} className={s.optionLabel}>
-                  <input
-                    type="radio"
-                    name={`q_${q.id}`}
-                    value={opt}
-                    checked={answers[q.id] === opt}
-                    onChange={() => setAnswers((prev) => ({ ...prev, [q.id]: opt }))}
-                  />
-                  {' '}
-                  {opt}
-                </label>
-              ))}
-
-              {q.question_type === 'short_answer' && (
-                <TextInput
-                  value={answers[q.id] || ''}
-                  onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
-                  placeholder="Your answer…"
-                  style={{ marginTop: 8 }}
-                />
-              )}
-            </div>
-          ))}
-
-          {result ? (
-            <div className={s.resultPanel}>
-              <CardTitleRow
-                title={`Result · ${result.score}/${result.totalMarks ?? 0}`}
-                aside={
-                  <StatusBadge variant="info">
-                    {result.totalMarks ? `${Math.round((Number(result.score || 0) / Number(result.totalMarks)) * 100)}%` : '0%'}
-                  </StatusBadge>
-                }
-              />
-              {result.message ? <AssessmentAlert type="success">{result.message}</AssessmentAlert> : null}
-              {result.auto_submitted ? (
-                <AssessmentAlert type="warn">Your time expired, so the quiz was submitted automatically.</AssessmentAlert>
-              ) : null}
-
-              {Array.isArray(result.feedback) && result.feedback.length > 0 ? (
-                <>
-                  <AssessmentSectionTitle>Question feedback</AssessmentSectionTitle>
-                  <div className={s.formGrid}>
-                    {result.feedback.map((item, index) => (
-                      <AssessmentAlert
-                        key={item.question_id || index}
-                        type={item.status === 'correct' ? 'success' : 'error'}
-                      >
-                        {item.message}
-                      </AssessmentAlert>
-                    ))}
-                  </div>
-                </>
-              ) : null}
-
-              {Array.isArray(result.correctAnswers) && result.correctAnswers.length > 0 ? (
-                <>
-                  <AssessmentDivider />
-                  <AssessmentSectionTitle>Answer review</AssessmentSectionTitle>
-                  <div className={s.formGrid}>
-                    {result.correctAnswers.map((item, index) => (
-                      <AssessmentCard key={item.question_id || index} muted>
-                        <AssessmentMeta strong>{item.question_text}</AssessmentMeta>
-                        <AssessmentMeta>Your answer: {item.submitted_answer || 'No answer'}</AssessmentMeta>
-                        <AssessmentMeta>Correct answer: {item.correct_answer || 'Not provided'}</AssessmentMeta>
-                        <p className={s.metaStrong} style={{ color: item.is_correct ? '#047857' : '#b91c1c', margin: '0.35rem 0 0' }}>
-                          {item.is_correct ? `Correct · +${item.marks_awarded}` : `Incorrect · 0/${item.marks_possible}`}
-                        </p>
-                      </AssessmentCard>
-                    ))}
-                  </div>
-                </>
-              ) : null}
-
-              <AssessmentToolbar>
-                <BtnPrimary type="button" onClick={() => setActiveQuiz(null)}>Back to quizzes</BtnPrimary>
-              </AssessmentToolbar>
-            </div>
-          ) : (
-            <AssessmentToolbar>
-              <BtnAccent
-                type="button"
-                onClick={submitQuiz}
-                disabled={submitting || !hasActiveQuestions || secondsLeft === 0}
-              >
-                {submitting ? 'Submitting…' : secondsLeft === 0 ? 'Time expired' : 'Submit quiz'}
-              </BtnAccent>
-              <BtnSecondary type="button" onClick={() => setActiveQuiz(null)}>Leave attempt</BtnSecondary>
-            </AssessmentToolbar>
-          )}
-        </div>
+        <QuizTakingWorkspace
+          activeQuiz={activeQuiz}
+          answers={answers}
+          setAnswers={setAnswers}
+          result={result}
+          setResult={setResult}
+          submitting={submitting}
+          setSubmitting={setSubmitting}
+          setError={setError}
+          updateQuizAttempt={updateQuizAttempt}
+          onExit={() => {
+            setActiveQuiz(null);
+            setResult(null);
+            setAnswers({});
+          }}
+        />
       </AssessmentShell>
     );
   }
-
   return (
     <AssessmentShell wide={isLecturer}>
       <CoursePageFrame courseId={courseId} pageTitle="Quizzes">
@@ -781,6 +597,8 @@ export default function Quizzes() {
               ))
             )}
 
+            <PublishValidationPanel questions={questions} form={draftQuizTarget ? null : form} showWhenValid />
+
             <AssessmentToolbar>
               <BtnSecondary type="button" onClick={addQuestion}>Add question</BtnSecondary>
               <BtnPrimary type="submit" disabled={loadingQuestions}>
@@ -830,7 +648,13 @@ export default function Quizzes() {
                 {isLecturer ? (
                   <AssessmentToolbar>
                     {!quiz.is_published ? (
-                      <BtnAccent type="button" onClick={() => publishQuiz(quiz.id)}>Publish</BtnAccent>
+                      <BtnAccent
+                        type="button"
+                        onClick={() => publishQuiz(quiz.id)}
+                        title="All questions must pass integrity checks before publishing"
+                      >
+                        Publish
+                      </BtnAccent>
                     ) : null}
                     <BtnSecondary type="button" onClick={() => openQuestionManager(quiz.id)}>Manage questions</BtnSecondary>
                     <BtnSecondary type="button" onClick={() => toggleParticipants(quiz.id)}>
@@ -848,11 +672,33 @@ export default function Quizzes() {
                 {isLecturer && isParticipantsOpen ? (
                   <div className={s.queue}>
                     <p className={s.queueTitle}>Attempt monitoring</p>
+                    {participants.length > 0 ? (
+                      <div className={qstyles.lecturerStats}>
+                        {(() => {
+                          const stats = computeQuizParticipantStats(participants);
+                          return (
+                            <>
+                              <div className={qstyles.lecturerStat}>
+                                <strong>{stats.submitted}</strong>
+                                <span>Submitted</span>
+                              </div>
+                              <div className={qstyles.lecturerStat}>
+                                <strong>{stats.avg ?? '—'}</strong>
+                                <span>Average score</span>
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
+                    ) : null}
                     {participantsError ? <AssessmentAlert type="error">{participantsError}</AssessmentAlert> : null}
                     {loadingParticipantsId === quiz.id ? (
                       <AssessmentMeta>Loading participants…</AssessmentMeta>
                     ) : participants.length === 0 ? (
-                      <AssessmentEmpty>No attempts recorded yet.</AssessmentEmpty>
+                      <div style={{ textAlign: 'center' }}>
+                        <QuizEmptyIllustration />
+                        <AssessmentEmpty>No attempts recorded yet.</AssessmentEmpty>
+                      </div>
                     ) : (
                       participants.map((entry) => (
                         <QueueItem key={entry.id}>
@@ -875,7 +721,10 @@ export default function Quizzes() {
       </AssessmentList>
 
       {!loading && quizzes.length === 0 ? (
-        <AssessmentEmpty>No quizzes in this course yet.</AssessmentEmpty>
+        <div style={{ textAlign: 'center', padding: 'var(--space-6)' }}>
+          <QuizEmptyIllustration />
+          <AssessmentEmpty>No quizzes in this course yet.</AssessmentEmpty>
+        </div>
       ) : null}
       </CoursePageFrame>
     </AssessmentShell>

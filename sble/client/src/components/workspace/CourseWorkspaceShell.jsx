@@ -28,19 +28,12 @@ export default function CourseWorkspaceShell({ children, pageTitle }) {
 
   return (
     <div className={s.workspaceShell}>
-      <nav className={s.breadcrumb} aria-label="Breadcrumb">
-        <Link to={`/${rolePrefix}/dashboard`}>Dashboard</Link>
-        <span className={s.breadcrumbSep}>/</span>
-        <Link to={`/${rolePrefix}/courses`}>Courses</Link>
-        <span className={s.breadcrumbSep}>/</span>
-        <Link to={coursePath(rolePrefix, courseId, '')}>{course?.title || `Course ${courseId}`}</Link>
-        {pageTitle && activeSegment !== 'home' ? (
-          <>
-            <span className={s.breadcrumbSep}>/</span>
-            <span>{pageTitle}</span>
-          </>
-        ) : null}
-      </nav>
+      {course?.title ? (
+        <p className={s.courseContext}>
+          <span className={s.courseContextLabel}>Course</span>
+          {course.title}
+        </p>
+      ) : null}
 
       <nav className={s.courseNav} aria-label="Course sections">
         {navItems.map((item) => {
@@ -57,13 +50,6 @@ export default function CourseWorkspaceShell({ children, pageTitle }) {
             </Link>
           );
         })}
-        <Link
-          to={isLecturer ? '/lecturer/calendar' : '/student/calendar'}
-          className={s.courseNavLink}
-          style={{ marginLeft: 'auto' }}
-        >
-          Calendar
-        </Link>
       </nav>
 
       {course?.lecturer && pageTitle ? (

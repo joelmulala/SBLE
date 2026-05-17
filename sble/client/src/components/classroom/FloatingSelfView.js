@@ -1,19 +1,10 @@
-import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
-import { RoomEvent, Track } from 'livekit-client';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Track } from 'livekit-client';
+import useRoomMediaVersion from '../../hooks/useRoomMediaVersion';
 import styles from './FloatingSelfView.module.css';
-
-function matchesParticipant(participant, p) {
-  return p && participant && p.identity === participant.identity;
-}
 
 /**
  * Draggable local camera preview when the main stage focuses on others.
- * @param {{
- *   room: import('livekit-client').Room | null,
- *   participantCount: number,
- *   spotlightIdentity?: string | null,
- *   layoutMode?: string
- * }} props
  */
 export default function FloatingSelfView({
   room,
@@ -23,7 +14,7 @@ export default function FloatingSelfView({
 }) {
   const videoRef = useRef(null);
   const dragRef = useRef(null);
-  const [, version] = useReducer((n) => n + 1, 0);
+  const version = useRoomMediaVersion(room, room?.localParticipant);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const dragState = useRef({ active: false, startX: 0, startY: 0, ox: 0, oy: 0 });
   const offsetRef = useRef({ x: 0, y: 0 });
@@ -44,41 +35,25 @@ export default function FloatingSelfView({
   );
 
   useEffect(() => {
-    if (!room || !local) return undefined;
-    const bump = () => version();
-    const onTrackSubscribed = (_t, _pub, p) => {
-      if (matchesParticipant(local, p)) bump();
-    };
-    const onTrackUnsubscribed = (_t, _pub, p) => {
-      if (matchesParticipant(local, p)) bump();
-    };
-    const onLocalPublished = (_pub, p) => {
-      if (matchesParticipant(local, p)) bump();
-    };
-    const onLocalUnpublished = (_pub, p) => {
-      if (matchesParticipant(local, p)) bump();
-    };
-
-    room.on(RoomEvent.TrackSubscribed, onTrackSubscribed);
-    room.on(RoomEvent.TrackUnsubscribed, onTrackUnsubscribed);
-    room.on(RoomEvent.LocalTrackPublished, onLocalPublished);
-    room.on(RoomEvent.LocalTrackUnpublished, onLocalUnpublished);
-
-    return () => {
-      room.off(RoomEvent.TrackSubscribed, onTrackSubscribed);
-      room.off(RoomEvent.TrackUnsubscribed, onTrackUnsubscribed);
-      room.off(RoomEvent.LocalTrackPublished, onLocalPublished);
-      room.off(RoomEvent.LocalTrackUnpublished, onLocalUnpublished);
-    };
-  }, [room, local]);
-
-  useEffect(() => {
     const el = videoRef.current;
     const pub = local?.getTrackPublication(Track.Source.Camera);
     const track = pub?.track;
     if (!el || !track || !show) return undefined;
-    track.attach(el);
+
+    let cancelled = false;
+    const bind = () => {
+      if (cancelled || !videoRef.current) return;
+      try {
+        track.attach(videoRef.current);
+      } catch (_) { /* ignore */ }
+    };
+
+    bind();
+    const rafId = requestAnimationFrame(bind);
+
     return () => {
+      cancelled = true;
+      cancelAnimationFrame(rafId);
       try {
         track.detach(el);
       } catch (_) { /* ignore */ }
@@ -94,56 +69,39 @@ export default function FloatingSelfView({
       ox: offsetRef.current.x,
       oy: offsetRef.current.y
     };
-    const t = e.target;
-    if (typeof t.setPointerCapture === 'function') {
-      t.setPointerCapture(e.pointerId);
-    }
+    e.currentTarget.setPointerCapture(e.pointerId);
   }, []);
 
-  useEffect(() => {
-    const onMove = (e) => {
-      if (!dragState.current.active) return;
-      const dx = e.clientX - dragState.current.startX;
-      const dy = e.clientY - dragState.current.startY;
-      setOffset({
-        x: dragState.current.ox + dx,
-        y: dragState.current.oy + dy
-      });
-    };
-    const onUp = () => {
-      dragState.current.active = false;
-    };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-    return () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-    };
+  const onPointerMove = useCallback((e) => {
+    if (!dragState.current.active) return;
+    const dx = e.clientX - dragState.current.startX;
+    const dy = e.clientY - dragState.current.startY;
+    setOffset({ x: dragState.current.ox + dx, y: dragState.current.oy + dy });
+  }, []);
+
+  const onPointerUp = useCallback((e) => {
+    dragState.current.active = false;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch (_) { /* ignore */ }
   }, []);
 
   if (!show) return null;
 
-  const name = local.name || 'You';
-
   return (
     <div
-      className={styles.selfWrap}
+      ref={dragRef}
+      className={styles.pip}
       style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      role="img"
+      aria-label="Your camera preview"
     >
-      <div
-        ref={dragRef}
-        className={styles.dragHandle}
-        onPointerDown={onPointerDown}
-        role="button"
-        tabIndex={0}
-        aria-label="Move self view"
-      >
-        You
-      </div>
-      <div className={styles.videoFrame}>
-        <video ref={videoRef} className={styles.video} playsInline muted />
-      </div>
-      <div className={styles.label}>{name}</div>
+      <video ref={videoRef} className={styles.video} autoPlay playsInline muted />
+      <span className={styles.label}>You</span>
     </div>
   );
 }

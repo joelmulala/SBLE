@@ -1,10 +1,16 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useKeycloak } from '../auth/AuthProvider';
 import useAuthSync from '../hooks/useAuthSync';
 import useAcademicActivity from '../hooks/useAcademicActivity';
+import useUpcomingTasks from '../hooks/useUpcomingTasks';
 import AcademicActivityStream from '../components/workspace/AcademicActivityStream';
-import CalendarUpcomingPanel from '../components/calendar/CalendarUpcomingPanel';
+import AcademicCalendarPanel from '../components/productivity/AcademicCalendarPanel';
+import UpcomingTasksWidget from '../components/productivity/UpcomingTasksWidget';
+import QuickActions from '../components/productivity/QuickActions';
+import WorkspaceAwareness from '../components/productivity/WorkspaceAwareness';
+import DashboardHeroIllustration from '../components/layout/DashboardHeroIllustration';
+import { calendarBasePath } from '../components/calendar/calendarUtils';
 import styles from './Dashboard.module.css';
 
 export default function Dashboard() {
@@ -15,10 +21,20 @@ export default function Dashboard() {
   const isAdmin = keycloak.hasRealmRole('admin');
   const isLecturer = keycloak.hasRealmRole('lecturer') || isAdmin;
   const roleMode = isAdmin ? 'admin' : isLecturer ? 'lecturer' : 'student';
+
   const { items, liveSessions, loading, error } = useAcademicActivity({
     limit: 14,
     isLecturer
   });
+
+  const {
+    tasks,
+    firstCourseId,
+    loading: tasksLoading,
+    error: tasksError
+  } = useUpcomingTasks({ isLecturer, limit: 8 });
+
+  const calendarPath = calendarBasePath(isLecturer);
 
   const roleHeader = {
     admin: 'Institutional overview — users, live classes, and platform readiness.',
@@ -26,32 +42,53 @@ export default function Dashboard() {
     student: 'Your learning path — deadlines, live classes, and course updates.'
   };
 
-  const quickLinks = isAdmin
-    ? [
-      { label: 'User management', to: '/users' },
-      { label: 'Live classrooms', to: '/rooms' }
-    ]
-    : isLecturer
-      ? [
-        { label: 'My courses', to: '/lecturer/courses' },
-        { label: 'Academic calendar', to: '/lecturer/calendar' },
-        { label: 'Gradebook', to: '/lecturer/gradebook' }
-      ]
-      : [
-        { label: 'My courses', to: '/student/courses' },
-        { label: 'Academic calendar', to: '/student/calendar' },
-        { label: 'My grades', to: '/student/gradebook' }
-      ];
+  const summary = useMemo(() => {
+    const deadlines = items.filter((i) => i.kind === 'deadline').length;
+    const courseIds = new Set(
+      items
+        .map((i) => {
+          const match = i.href?.match(/\/courses\/([^/]+)/);
+          return match?.[1];
+        })
+        .filter(Boolean)
+    );
+    return {
+      courses: courseIds.size || '—',
+      deadlines: deadlines || tasks.length,
+      live: liveSessions.length
+    };
+  }, [items, liveSessions, tasks.length]);
 
   return (
     <div className={`${styles.page} ${styles[`page${roleMode[0].toUpperCase()}${roleMode.slice(1)}`]}`}>
-      <section className={styles.intro}>
-        <div className={styles.roleKicker}>{roleMode}</div>
-        <h1 className="page-title">Welcome back, {name}</h1>
-        <p className="page-lead">{roleHeader[roleMode]}</p>
+      <section className={styles.hero}>
+        <div className={styles.heroContent}>
+          <span className={styles.roleKicker}>{roleMode}</span>
+          <h2 className={styles.heroTitle}>Welcome back, {name}</h2>
+          <p className={styles.heroLead}>{roleHeader[roleMode]}</p>
+          <div className={styles.heroStats}>
+            <div className={styles.heroStat}>
+              <span className={styles.heroStatLabel}>Active courses</span>
+              <span className={styles.heroStatValue}>{summary.courses}</span>
+            </div>
+            <div className={styles.heroStat}>
+              <span className={styles.heroStatLabel}>Upcoming items</span>
+              <span className={styles.heroStatValue}>{summary.deadlines}</span>
+            </div>
+            <div className={styles.heroStat}>
+              <span className={styles.heroStatLabel}>Live now</span>
+              <span className={styles.heroStatValue}>{summary.live}</span>
+            </div>
+          </div>
+        </div>
+        <div className={styles.heroVisual} aria-hidden>
+          <DashboardHeroIllustration />
+        </div>
       </section>
 
-      {error ? <div className={styles.notice}>{error}</div> : null}
+      {error || tasksError ? (
+        <div className={styles.notice}>{error || tasksError}</div>
+      ) : null}
 
       {liveSessions.length > 0 ? (
         <section className={styles.liveStrip}>
@@ -63,6 +100,26 @@ export default function Dashboard() {
         </section>
       ) : null}
 
+      <section className={styles.productivityGrid} aria-label="Academic productivity">
+        {!isAdmin ? (
+          <>
+            <UpcomingTasksWidget
+              tasks={tasks}
+              loading={tasksLoading}
+              isLecturer={isLecturer}
+              footerLink={calendarPath}
+            />
+            <AcademicCalendarPanel title="Academic schedule" limit={6} />
+          </>
+        ) : null}
+        <QuickActions
+          isAdmin={isAdmin}
+          isLecturer={isLecturer}
+          firstCourseId={firstCourseId}
+          hasLiveSession={liveSessions.length > 0}
+        />
+      </section>
+
       <section className={styles.dashboardGrid}>
         <Surface title="Academic activity" lead="Recent deadlines, announcements, and session notices.">
           <AcademicActivityStream
@@ -72,22 +129,14 @@ export default function Dashboard() {
           />
         </Surface>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
-          <Surface title="Quick access" lead="Frequent workflows for your role.">
-            <div className={styles.actionList}>
-              {quickLinks.map((link) => (
-                <Link key={link.to} to={link.to} className={styles.actionLink}>
-                  {link.label}
-                  <span className={styles.arrow}>→</span>
-                </Link>
-              ))}
-            </div>
-          </Surface>
-
-          {!isAdmin ? (
-            <CalendarUpcomingPanel title="Upcoming deadlines" limit={5} />
+        <Surface title="Needs your attention" lead="What changed recently and what to do next.">
+          <WorkspaceAwareness items={items} loading={loading} />
+          {!loading && !items.length ? (
+            <p className={styles.surfaceLead} style={{ marginTop: 'var(--space-3)' }}>
+              You are up to date. Check the calendar for upcoming academic events.
+            </p>
           ) : null}
-        </div>
+        </Surface>
       </section>
     </div>
   );
@@ -95,9 +144,9 @@ export default function Dashboard() {
 
 function Surface({ title, lead, children }) {
   return (
-    <article className={styles.surface}>
+    <article className={`${styles.surface} wk-card`}>
       <div className={styles.surfaceHeader}>
-        <h2 className={styles.surfaceTitle}>{title}</h2>
+        <h3 className={styles.surfaceTitle}>{title}</h3>
         {lead ? <p className={styles.surfaceLead}>{lead}</p> : null}
       </div>
       <div className={styles.surfaceBody}>{children}</div>

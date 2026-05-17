@@ -29,7 +29,7 @@ import {
 } from './classroomModerationData';
 
 /** Max automatic getDisplayMedia retries after a screen-share track ends while sharing is still intended. */
-const SCREEN_SHARE_MAX_AUTO_RESUMES = 2;
+const SCREEN_SHARE_MAX_AUTO_RESUMES = 5;
 
 /**
  * Delay before re-requesting screen capture (ms). Override with REACT_APP_LIVEKIT_SCREEN_RESUME_MS (200–5000).
@@ -179,7 +179,31 @@ export class LiveKitClassroomMediaAdapter extends ClassroomMediaAdapter {
     surfaceSwitching: 'include',
     selfBrowserSurface: 'include',
     systemAudio: 'include',
+    preferCurrentTab: true,
     contentHint: 'detail'
+  };
+
+  _onVisibilityChange = () => {
+    if (this._getDisposed() || !this._room || !this._screenShareUserWants) return;
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+    this._scheduleScreenShareResume();
+  };
+
+  _scheduleScreenShareResume = () => {
+    const lp = this._room?.localParticipant;
+    if (!lp || lp.isScreenShareEnabled) return;
+    if (this._screenShareAutoResumeCount >= SCREEN_SHARE_MAX_AUTO_RESUMES) return;
+    if (this._screenResumeTimer) clearTimeout(this._screenResumeTimer);
+    const delay = getScreenShareResumeDelayMs();
+    this._screenResumeTimer = setTimeout(() => {
+      this._screenResumeTimer = null;
+      if (this._getDisposed() || !this._room || !this._screenShareUserWants) return;
+      const local = this._room.localParticipant;
+      if (!local || local.isScreenShareEnabled) return;
+      if (this._screenShareAutoResumeCount >= SCREEN_SHARE_MAX_AUTO_RESUMES) return;
+      this._screenShareAutoResumeCount += 1;
+      local.setScreenShareEnabled(true, this._screenShareCaptureOptions).catch(() => {});
+    }, delay);
   };
 
   _hookScreenShareTrack = (publication) => {
@@ -198,20 +222,8 @@ export class LiveKitClassroomMediaAdapter extends ClassroomMediaAdapter {
   };
 
   _onScreenShareTrackEnded = () => {
-    if (this._getDisposed() || !this._room) return;
-    if (!this._screenShareUserWants) return;
-    const lp = this._room.localParticipant;
-    if (!lp) return;
-    if (this._screenResumeTimer) clearTimeout(this._screenResumeTimer);
-    const delay = getScreenShareResumeDelayMs();
-    this._screenResumeTimer = setTimeout(() => {
-      this._screenResumeTimer = null;
-      if (this._getDisposed() || !this._room || !this._screenShareUserWants) return;
-      if (lp.isScreenShareEnabled) return;
-      if (this._screenShareAutoResumeCount >= SCREEN_SHARE_MAX_AUTO_RESUMES) return;
-      this._screenShareAutoResumeCount += 1;
-      lp.setScreenShareEnabled(true, this._screenShareCaptureOptions).catch(() => {});
-    }, delay);
+    if (this._getDisposed() || !this._room || !this._screenShareUserWants) return;
+    this._scheduleScreenShareResume();
   };
 
 
@@ -434,9 +446,22 @@ export class LiveKitClassroomMediaAdapter extends ClassroomMediaAdapter {
     room.on(RoomEvent.ParticipantNameChanged, onParticipants);
     room.on(RoomEvent.TrackMuted, onParticipants);
     room.on(RoomEvent.TrackUnmuted, onParticipants);
-    room.on(RoomEvent.Reconnected, onParticipants);
+    const onReconnecting = () => {
+      this._emitConnection({ type: 'reconnecting' });
+    };
+    const onReconnected = () => {
+      this._emitConnection({ type: 'reconnected' });
+      onParticipants();
+    };
+
+    room.on(RoomEvent.Reconnecting, onReconnecting);
+    room.on(RoomEvent.Reconnected, onReconnected);
     room.on(RoomEvent.DataReceived, this._onRoomDataReceived);
     room.on(RoomEvent.Disconnected, this._onDisconnected);
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', this._onVisibilityChange);
+    }
 
     this._detachRoomListeners = () => {
       room.off(RoomEvent.ParticipantConnected, onParticipants);
@@ -450,9 +475,13 @@ export class LiveKitClassroomMediaAdapter extends ClassroomMediaAdapter {
       room.off(RoomEvent.ParticipantNameChanged, onParticipants);
       room.off(RoomEvent.TrackMuted, onParticipants);
       room.off(RoomEvent.TrackUnmuted, onParticipants);
-      room.off(RoomEvent.Reconnected, onParticipants);
+      room.off(RoomEvent.Reconnecting, onReconnecting);
+      room.off(RoomEvent.Reconnected, onReconnected);
       room.off(RoomEvent.DataReceived, this._onRoomDataReceived);
       room.off(RoomEvent.Disconnected, this._onDisconnected);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', this._onVisibilityChange);
+      }
     };
   }
 
@@ -473,6 +502,9 @@ export class LiveKitClassroomMediaAdapter extends ClassroomMediaAdapter {
     if (this._screenResumeTimer) {
       clearTimeout(this._screenResumeTimer);
       this._screenResumeTimer = null;
+    }
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this._onVisibilityChange);
     }
     this._screenShareUserWants = false;
     this._screenShareAutoResumeCount = 0;

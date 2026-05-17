@@ -4,21 +4,15 @@ import styles from './ClassroomMediaStage.module.css';
 
 /**
  * SBLE-owned LiveKit video stage (orchestrated from Room.js).
- * @param {{
- *   room: import('livekit-client').Room | null,
- *   sidebarOpen?: boolean,
- *   presenceByIdentity?: Record<string, { raisedHand?: boolean, hasQuestion?: boolean, participationAck?: string | null }>,
- *   onStageMetaChange?: (meta: {
- *     layoutMode: string,
- *     presentationFsActive: boolean,
- *     discussionSpotlightId: string | null,
- *     discussionCount: number
- *   }) => void
- * }} props
  */
-/** @alias LiveClassroomStage */
 const ClassroomMediaStage = forwardRef(function ClassroomMediaStage(
-  { room, sidebarOpen = false, presenceByIdentity = {}, onStageMetaChange },
+  {
+    room,
+    sidebarOpen = false,
+    presentationExpanded = false,
+    presenceByIdentity = {},
+    onStageMetaChange
+  },
   ref
 ) {
   const stageRef = useRef(null);
@@ -26,7 +20,6 @@ const ClassroomMediaStage = forwardRef(function ClassroomMediaStage(
   useImperativeHandle(
     ref,
     () => ({
-      togglePresentationFullscreen: () => stageRef.current?.togglePresentationFullscreen?.(),
       get presentationFsActive() {
         return stageRef.current?.presentationFsActive ?? false;
       },
@@ -46,6 +39,7 @@ const ClassroomMediaStage = forwardRef(function ClassroomMediaStage(
         ref={stageRef}
         room={room}
         sidebarOpen={sidebarOpen}
+        presentationExpanded={presentationExpanded}
         presenceByIdentity={presenceByIdentity}
         onStageMetaChange={onStageMetaChange}
       />

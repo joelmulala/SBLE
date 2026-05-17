@@ -42,10 +42,30 @@ export function validateQuizQuestionsForPublishClient(questions = []) {
       }
     } else if (type === 'short_answer') {
       if (!correct) errors.push(`Question ${n}: enter the expected short answer.`);
+    } else {
+      errors.push(`Question ${n}: unsupported question type — choose MCQ, True/False, or Short answer.`);
     }
   });
 
+  const totalMarks = questions.reduce((sum, q) => sum + (Number(q.marks) || 0), 0);
+  if (totalMarks < 1) {
+    errors.push('Total quiz points must be at least 1.');
+  }
+
   return { valid: errors.length === 0, errors };
+}
+
+export function buildPublishReadiness(questions = [], form = null) {
+  const check = validateQuizQuestionsForPublishClient(questions);
+  const errors = [...check.errors];
+  if (form && !String(form.title || '').trim()) {
+    errors.unshift('Quiz title is required before publishing.');
+  }
+  if (form) {
+    const mins = totalDurationMinutesFromForm(form);
+    if (mins < 1) errors.push('Set a quiz duration of at least 1 minute.');
+  }
+  return { valid: errors.length === 0, errors, totalMarks: questions.reduce((s, q) => s + (Number(q.marks) || 0), 0) };
 }
 
 export function totalDurationMinutesFromForm(form = {}) {

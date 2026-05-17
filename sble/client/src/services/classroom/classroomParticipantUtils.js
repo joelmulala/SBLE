@@ -28,11 +28,20 @@ export function parseClassroomMetadata(metadata) {
 export function resolvePrimarySpeakerIdentity(room) {
   const speakers = room?.activeSpeakers || [];
   if (!speakers.length) return null;
-  const lect = speakers.find((s) => {
+
+  const speaking = speakers.filter((s) => s.isSpeaking);
+  const pool = speaking.length ? speaking : speakers;
+
+  const lect = pool.find((s) => {
     const r = parseClassroomMetadata(s.metadata).role;
     return r === 'lecturer' || r === 'admin';
   });
-  return (lect || speakers[0]).identity;
+  if (lect) return lect.identity;
+
+  const student = pool.find((s) => parseClassroomMetadata(s.metadata).role === 'student');
+  if (student) return student.identity;
+
+  return pool[0].identity;
 }
 
 /**

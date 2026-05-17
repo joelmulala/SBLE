@@ -9,6 +9,7 @@ const Quiz = require('./Quiz');
 const QuizQuestion = require('./QuizQuestion');
 const QuizAttempt = require('./QuizAttempt');
 const Exam = require('./Exam');
+const ExamStudentAccess = require('./ExamStudentAccess');
 const Room = require('./Room');
 const LiveClassSession = require('./LiveClassSession');
 const LiveClassAttendance = require('./LiveClassAttendance');
@@ -27,6 +28,9 @@ Course.hasMany(Assignment, { foreignKey: 'course_id' });
 Course.hasMany(Quiz, { foreignKey: 'course_id' });
 Course.hasMany(Exam, { foreignKey: 'course_id' });
 Exam.belongsTo(Course, { foreignKey: 'course_id' });
+Exam.hasMany(ExamStudentAccess, { foreignKey: 'exam_id', onDelete: 'CASCADE' });
+ExamStudentAccess.belongsTo(Exam, { foreignKey: 'exam_id' });
+ExamStudentAccess.belongsTo(User, { as: 'student', foreignKey: 'student_id' });
 Course.hasMany(Room, { foreignKey: 'course_id' });
 Room.belongsTo(Course, { foreignKey: 'course_id' });
 Room.hasMany(LiveClassSession, { foreignKey: 'room_id' });
@@ -79,6 +83,6 @@ module.exports = {
   sequelize,
   User, Course, Enrollment, Material,
   Assignment, Submission, Quiz, QuizQuestion,
-  QuizAttempt, Exam, Room, LiveClassSession, LiveClassAttendance, Discussion, Announcement,
+  QuizAttempt, Exam, ExamStudentAccess, Room, LiveClassSession, LiveClassAttendance, Discussion, Announcement,
   CourseModule, CourseModuleItem, CalendarCustomEvent, AuditLog
 };

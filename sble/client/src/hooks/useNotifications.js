@@ -18,26 +18,31 @@ export default function useNotifications() {
     // SSE requires the token in the URL since EventSource doesn't support headers
     const es = new EventSource(`${url}?token=${keycloak.token}`);
 
+    let seq = 0;
+    const pushNotification = (entry) => {
+      seq += 1;
+      setNotifications((prev) => [{ id: `${Date.now()}-${seq}`, ...entry }, ...prev]);
+    };
+
     es.addEventListener('grade', (e) => {
       const data = JSON.parse(e.data);
-      setNotifications(prev => [{ id: Date.now(), type: 'grade', ...data }, ...prev]);
+      pushNotification({ type: 'grade', ...data });
     });
 
     es.addEventListener('exam-released', (e) => {
       const data = JSON.parse(e.data);
-      setNotifications(prev => [{ id: Date.now(), type: 'exam', ...data }, ...prev]);
+      pushNotification({ type: 'exam', ...data });
     });
 
     const handleLiveClassStarted = (e) => {
       const data = JSON.parse(e.data);
-      setNotifications(prev => [{
-        id: Date.now(),
+      pushNotification({
         type: data.type || 'live_class_started',
         roomId: data.roomId || data.room_id,
         courseId: data.courseId || data.course_id,
         message: data.message || 'Live class started - Join now',
         ...data
-      }, ...prev]);
+      });
     };
 
     es.addEventListener('live-class-started', handleLiveClassStarted);
@@ -46,14 +51,13 @@ export default function useNotifications() {
     const handleLiveClassEnded = (e) => {
       try {
         const data = JSON.parse(e.data);
-        setNotifications((prev) => [{
-          id: Date.now(),
+        pushNotification({
           type: data.type || 'live_class_ended',
           roomId: data.roomId || data.room_id,
           courseId: data.courseId || data.course_id,
           message: data.message || 'Live class ended',
           ...data
-        }, ...prev]);
+        });
       } catch (err) {
         /* ignore */
       }
@@ -64,15 +68,14 @@ export default function useNotifications() {
     es.addEventListener('announcement', (e) => {
       try {
         const data = JSON.parse(e.data);
-        setNotifications((prev) => [{
-          id: Date.now(),
+        pushNotification({
           type: 'announcement',
           title: data.title || 'New announcement',
           message: data.message || data.title,
           courseId: data.courseId || data.course_id,
           announcementId: data.announcementId || data.announcement_id,
           ...data
-        }, ...prev]);
+        });
       } catch (_) {
         /* ignore */
       }
@@ -81,8 +84,7 @@ export default function useNotifications() {
     es.addEventListener('discussion-reply', (e) => {
       try {
         const data = JSON.parse(e.data);
-        setNotifications((prev) => [{
-          id: Date.now(),
+        pushNotification({
           type: 'discussion_reply',
           title: 'Discussion reply',
           message: data.message || 'New reply in course discussion',
@@ -90,7 +92,7 @@ export default function useNotifications() {
           discussionId: data.discussionId || data.discussion_id,
           parentId: data.parentId || data.parent_id,
           ...data
-        }, ...prev]);
+        });
       } catch (_) {
         /* ignore */
       }
@@ -101,7 +103,8 @@ export default function useNotifications() {
     return () => es.close();
   }, [initialized, keycloak.authenticated, keycloak.token]);
 
-  const dismiss = (id) => setNotifications(prev => prev.filter(n => n.id !== id));
+  const dismiss = (id) => setNotifications((prev) => prev.filter((n) => n.id !== id));
+  const dismissAll = () => setNotifications([]);
 
-  return { notifications, dismiss };
+  return { notifications, dismiss, dismissAll };
 }

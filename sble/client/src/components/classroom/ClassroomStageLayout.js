@@ -32,7 +32,11 @@ export default function ClassroomStageLayout({
     : (room.localParticipant ? [room.localParticipant] : []);
 
   if (!roster.length) {
-    return null;
+    return (
+      <div className={styles.emptyStage} role="status">
+        Preparing video…
+      </div>
+    );
   }
 
   const signalsFor = (identity) => presenceByIdentity[identity] || {};
@@ -45,6 +49,7 @@ export default function ClassroomStageLayout({
           room={room}
           participant={p}
           variant="cinema"
+          hideLabel
           isPrimarySpeaker={primarySpeakerId === p.identity}
           isLecturerRole={isLecturerParticipant(p)}
           signals={signalsFor(p.identity)}
@@ -66,6 +71,7 @@ export default function ClassroomStageLayout({
             room={room}
             participant={spotlight}
             variant="cinema"
+            hideLabel
             isPrimarySpeaker={primarySpeakerId === spotlight.identity}
             isLecturerRole={isLecturerParticipant(spotlight)}
             signals={signalsFor(spotlight.identity)}
@@ -90,7 +96,7 @@ export default function ClassroomStageLayout({
       participants={roster}
       primarySpeakerId={primarySpeakerId}
       layout="grid"
-      emphasizeLecturer={false}
+      emphasizeLecturer
       compact={sidebarOpen}
       presenceByIdentity={presenceByIdentity}
     />

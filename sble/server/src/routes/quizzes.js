@@ -514,11 +514,16 @@ router.put('/:id/attempt', ...guard, requireStudent,
     }
 
     if (isAttemptTimeExpired(attempt, quiz)) {
-      const grading = await finalizeAttemptRecord(attempt, quiz, attempt.answers || {});
+      const incomingExpired = req.body?.answers && typeof req.body.answers === 'object' ? req.body.answers : {};
+      const mergedExpired = { ...(attempt.answers || {}), ...incomingExpired };
+      const result = await finalizeAttemptRecord(attempt, quiz, mergedExpired);
+      await attempt.reload();
       return res.status(403).json({
         error: 'Quiz time has expired; your attempt was submitted automatically.',
-        ...grading,
-        auto_submitted: true
+        attempt_id: attempt.id,
+        submitted_at: attempt.submitted_at,
+        auto_submitted: true,
+        ...formatGradingPayload(result)
       });
     }
 
@@ -595,14 +600,31 @@ router.get('/:id', ...guard,
 
       if (!attempt) {
         attempt = await createAttemptRecord(quiz.id, req.user.id);
+      } else if (!attempt.expires_at) {
+        const expiresAt = getAttemptExpiry(attempt, quiz);
+        await attempt.update({ expires_at: expiresAt });
+      }
+
+      const expiresAt = attempt.expires_at || getAttemptExpiry(attempt, quiz);
+      if (Date.now() >= new Date(expiresAt).getTime()) {
+        const result = await finalizeAttemptRecord(attempt, quiz, attempt.answers || {});
+        await attempt.reload();
+        return res.status(403).json({
+          error: 'Quiz time expired and your attempt was auto-submitted',
+          attempt_id: attempt.id,
+          submitted_at: attempt.submitted_at,
+          auto_submitted: true,
+          ...formatGradingPayload(result)
+        });
       }
 
       quiz.setDataValue('attempt_id', attempt.id);
       quiz.setDataValue('attempt_started_at', attempt.started_at);
-      quiz.setDataValue('attempt_expires_at', attempt.expires_at || getAttemptExpiry(attempt, quiz));
+      quiz.setDataValue('attempt_expires_at', expiresAt);
       quiz.setDataValue('attempt_status', attempt.status || 'in_progress');
+      quiz.setDataValue('attempt_answers', attempt.answers || {});
       quiz.setDataValue('server_time', new Date().toISOString());
-      const rem = Math.max(0, new Date(quiz.getDataValue('attempt_expires_at')).getTime() - Date.now());
+      const rem = Math.max(0, new Date(expiresAt).getTime() - Date.now());
       quiz.setDataValue('seconds_remaining', Math.floor(rem / 1000));
       quiz.QuizQuestions.forEach((q) => { q.correct_answer = undefined; });
     }
@@ -649,6 +671,18 @@ router.post('/:id/attempt', ...guard, requireStudent,
     if (!attempt) {
       ensureQuizWindowOpen(quiz);
       attempt = await createAttemptRecord(req.params.id, req.user.id);
+    }
+
+    if (isAttemptTimeExpired(attempt, quiz)) {
+      const mergedEarly = { ...(attempt.answers || {}), ...(req.body?.answers && typeof req.body.answers === 'object' ? req.body.answers : {}) };
+      const result = await finalizeAttemptRecord(attempt, quiz, mergedEarly);
+      await attempt.reload();
+      return res.status(403).json({
+        error: 'Quiz time expired and your attempt was auto-submitted',
+        attempt: serializeAttempt(attempt),
+        auto_submitted: true,
+        ...formatGradingPayload(result)
+      });
     }
 
     let submittedAnswers;

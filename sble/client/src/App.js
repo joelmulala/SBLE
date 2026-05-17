@@ -15,6 +15,8 @@ import Room from './pages/Room';
 import RoomsList from './pages/RoomsList';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import LecturerCoursesPage from './pages/lecturer/LecturerCoursesPage';
 import LecturerEnrollmentPage from './pages/lecturer/LecturerEnrollmentPage';
 import LecturerPerformancePage from './pages/lecturer/LecturerPerformancePage';
@@ -76,6 +78,8 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
           <Route index element={<HomeRoute />} />
           <Route path="lecturer" element={<ProtectedRoute roles={['lecturer', 'admin']}><Navigate to="/lecturer/dashboard" replace /></ProtectedRoute>} />

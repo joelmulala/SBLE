@@ -1,4 +1,5 @@
 const { verifyToken } = require('./auth');
+const { User } = require('../models');
 
 /**
  * JWT bearer authentication guard (Keycloak-compatible route shape).
@@ -46,7 +47,7 @@ const buildGrant = (user) => ({
 });
 
 module.exports = {
-  protect: () => (req, res, next) => {
+  protect: () => async (req, res, next) => {
     const token = extractBearerToken(req.headers.authorization);
     if (!token) {
       return res.status(401).json({ error: 'Authentication required' });
@@ -58,6 +59,19 @@ module.exports = {
 
       if (!user.id) {
         return res.status(401).json({ error: 'Invalid token payload' });
+      }
+
+      const dbUser = await User.findByPk(user.id, {
+        attributes: ['id', 'is_active', 'token_version']
+      });
+
+      if (!dbUser || !dbUser.is_active) {
+        return res.status(401).json({ error: 'Invalid or expired token' });
+      }
+
+      const tokenVersion = Number(payload.tv ?? 0);
+      if (tokenVersion !== Number(dbUser.token_version || 0)) {
+        return res.status(401).json({ error: 'Session expired. Please sign in again.' });
       }
 
       req.auth = payload;

@@ -50,10 +50,12 @@ export function getAssignmentStudentUiState(assignment) {
   }
 
   if (submission?.id) {
+    const submittedLate = dueTime && submission.submitted_at
+      && new Date(submission.submitted_at).getTime() > dueTime;
     return {
       phase: isPastDue ? AssignmentStudentPhase.SUBMITTED_LOCKED : AssignmentStudentPhase.SUBMITTED_RESUBMIT_ALLOWED,
-      label: 'Waiting for grading',
-      badgeVariant: 'info',
+      label: submittedLate ? 'Submitted (late) — awaiting grading' : 'Waiting for grading',
+      badgeVariant: submittedLate ? 'warning' : 'info',
       canUpload: !isPastDue,
       canDelete: !isPastDue,
       uploadLabel: isPastDue ? 'Upload closed' : 'Resubmit'

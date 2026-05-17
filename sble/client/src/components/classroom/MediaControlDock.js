@@ -134,9 +134,9 @@ export default function MediaControlDock({
   sidebarOpen,
   sidebarTab,
   notesOpen = false,
-  onOpenChat,
+  onToggleChat,
   onTogglePeople,
-  onOpenNotes,
+  onToggleNotes,
   onToggleMic,
   onToggleCam,
   onToggleShare,
@@ -172,8 +172,8 @@ export default function MediaControlDock({
             label="Chat"
             pressed={chatActive}
             activeClass={styles.dockItemActive}
-            onClick={onOpenChat}
-            title="Open chat"
+            onClick={onToggleChat}
+            title={chatActive ? 'Close chat' : 'Open chat'}
           >
             <IconChat />
           </DockItem>
@@ -190,8 +190,8 @@ export default function MediaControlDock({
             label="Notes"
             pressed={notesActive}
             activeClass={styles.dockItemActive}
-            onClick={onOpenNotes}
-            title="Session notes"
+            onClick={onToggleNotes}
+            title={notesActive ? 'Close notes' : 'Session notes'}
           >
             <IconNotes />
           </DockItem>

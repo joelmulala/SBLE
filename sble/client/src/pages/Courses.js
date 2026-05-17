@@ -55,9 +55,8 @@ export default function Courses() {
       <div className="app-container app-stack">
         <section className={`app-surface ${styles.hero}`}>
           <div className="app-surface-body">
-            <p className="app-kicker">{isLecturer ? 'Teaching Workspace' : 'Learning Workspace'}</p>
-            <h1 className="page-title" style={{ marginTop: '0.35rem' }}>Courses</h1>
-            <p className="page-lead">Only courses you can access are shown here.</p>
+            <p className="app-kicker">{isLecturer ? 'Teaching workspace' : 'Learning workspace'}</p>
+            <p className="page-lead" style={{ marginTop: '0.35rem' }}>Only courses you can access are shown here.</p>
           </div>
         </section>
       {error && <p style={{ color: '#c0392b' }}>{error}</p>}

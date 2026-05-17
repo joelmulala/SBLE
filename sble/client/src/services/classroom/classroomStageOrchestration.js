@@ -79,9 +79,13 @@ export function resolvePipCameraParticipant(room, presentationMode, presenter) {
   return null;
 }
 
+/** Participants above this count fall back to grid when no one is actively speaking. */
+const GRID_FALLBACK_MIN = 6;
+
 /**
- * Who should fill the main teaching surface in discussion (gallery) mode.
- * Prefers instructor when present, else dominant speaker, else first participant.
+ * Teaching stage priority in discussion mode (after presentation):
+ * 1) lecturer active speaker 2) student active speaker 3) instructor presence (small groups)
+ * 4) grid fallback (null spotlight) for larger idle classes.
  * @param {import('livekit-client').Room | null} room
  * @param {string | null} primarySpeakerId
  * @returns {string | null}
@@ -91,10 +95,35 @@ export function resolveDiscussionSpotlightIdentity(room, primarySpeakerId) {
   const all = getRoomParticipants(room);
   if (!all.length) return null;
   if (all.length === 1) return all[0].identity;
+
+  const primary = primarySpeakerId
+    ? all.find((p) => p.identity === primarySpeakerId)
+    : null;
+
+  if (primary) {
+    if (isLecturerParticipant(primary)) return primary.identity;
+    return primary.identity;
+  }
+
+  if (all.length >= GRID_FALLBACK_MIN) return null;
+
   const lect = all.find((p) => isLecturerParticipant(p));
   if (lect) return lect.identity;
-  if (primarySpeakerId && all.some((p) => p.identity === primarySpeakerId)) {
-    return primarySpeakerId;
-  }
+
   return all[0].identity;
+}
+
+/**
+ * @param {import('livekit-client').Room | null} room
+ * @param {string | null} primarySpeakerId
+ * @returns {'cinema'|'spotlight'|'grid'}
+ */
+export function resolveDiscussionLayoutKind(room, primarySpeakerId) {
+  if (!room) return 'grid';
+  const all = getRoomParticipants(room);
+  if (!all.length) return 'grid';
+  if (all.length === 1) return 'cinema';
+  const spotlightId = resolveDiscussionSpotlightIdentity(room, primarySpeakerId);
+  if (!spotlightId) return 'grid';
+  return 'spotlight';
 }

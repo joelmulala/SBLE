@@ -1,20 +1,42 @@
 const router = require('express').Router();
+const rateLimit = require('express-rate-limit');
 const { v4: uuidv4 } = require('uuid');
 const keycloak = require('../config/keycloak');
 const { signToken } = require('../config/auth');
 const { attachUser } = require('../middleware/auth');
 const { sendLoginNotification } = require('../services/email/emailService');
+const {
+  requestPasswordReset,
+  resetPasswordWithToken,
+  GENERIC_FORGOT_RESPONSE
+} = require('../services/email/passwordResetService');
 const { User } = require('../models');
 const { isDevLoginAllowed } = require('../utils/validation');
+const {
+  hashPassword,
+  verifyPassword,
+  validatePasswordStrength
+} = require('../utils/password');
+const { getDefaultPasswordMap, getDefaultPasswordForRole } = require('../utils/defaultPasswords');
 
-const tempPasswords = {
-  admin: process.env.TEMP_ADMIN_PASSWORD,
-  lecturer: process.env.TEMP_LECTURER_PASSWORD,
-  student: process.env.TEMP_STUDENT_PASSWORD
-};
+const tempPasswords = getDefaultPasswordMap();
 
 const VALID_ROLES = ['student', 'lecturer', 'admin'];
 const VALID_MODES = ['Full-time', 'Evening', 'ODL'];
+
+const passwordResetWindowMs = Number.parseInt(
+  process.env.PASSWORD_RESET_RATE_LIMIT_WINDOW_MS || `${60 * 60 * 1000}`,
+  10
+);
+const passwordResetMax = Number.parseInt(process.env.PASSWORD_RESET_RATE_LIMIT_MAX || '5', 10);
+
+const passwordResetLimiter = rateLimit({
+  windowMs: passwordResetWindowMs,
+  max: passwordResetMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many password reset attempts. Please try again later.' }
+});
 
 const normalizeText = (value) => {
   if (value === undefined || value === null) return null;
@@ -41,6 +63,11 @@ const validateRegistrationPayload = (payload) => {
     errors.push('A valid email is required');
   }
 
+  const passwordCheck = validatePasswordStrength(payload.password);
+  if (!passwordCheck.valid) {
+    errors.push(...passwordCheck.errors);
+  }
+
   if (!VALID_ROLES.includes(payload.role)) {
     errors.push('role must be student, lecturer, or admin');
   }
@@ -55,7 +82,8 @@ const validateRegistrationPayload = (payload) => {
     if (!Number.isInteger(payload.year_of_study) || payload.year_of_study < 1) {
       errors.push('year_of_study must be a positive integer');
     }
-    if (!Number.isInteger(payload.semester) || payload.semester < 1) {
+    const semester = payload.semester ?? 1;
+    if (!Number.isInteger(semester) || semester < 1) {
       errors.push('semester must be a positive integer');
     }
     if (!VALID_MODES.includes(payload.mode)) {
@@ -64,16 +92,67 @@ const validateRegistrationPayload = (payload) => {
   }
 
   if (payload.role === 'lecturer') {
-    if (!payload.institution) errors.push('institution is required for lecturers');
-    if (!payload.staff_email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.staff_email)) {
-      errors.push('A valid staff_email is required for lecturers');
+    if (!payload.lecturer_id) errors.push('lecturer_id is required for lecturers');
+    if (!payload.institution) errors.push('department is required for lecturers');
+    const staffEmail = payload.staff_email || payload.email;
+    if (!staffEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(staffEmail)) {
+      errors.push('A valid email is required for lecturers');
     }
   }
 
   return errors;
 };
 
-// JWT login endpoint
+const verifyUserPassword = async (user, password) => {
+  const expectedPassword = getDefaultPasswordForRole(user.role)
+    || getDefaultPasswordForRole('student');
+
+  if (user.password_hash) {
+    const hashMatches = await verifyPassword(password, user.password_hash);
+    if (hashMatches) return true;
+    // Hash out of sync (e.g. admin default not applied) — still accept configured default.
+    if (expectedPassword && password === expectedPassword) {
+      return true;
+    }
+    return false;
+  }
+
+  if (!expectedPassword || password !== expectedPassword) {
+    return false;
+  }
+
+  return isDevLoginAllowed();
+};
+
+const syncDefaultPasswordHash = async (user, password) => {
+  const expectedPassword = getDefaultPasswordForRole(user.role);
+  if (!expectedPassword || password !== expectedPassword) return;
+
+  const hashMatches = user.password_hash
+    ? await verifyPassword(password, user.password_hash)
+    : false;
+
+  if (!hashMatches) {
+    await user.update({
+      password_hash: await hashPassword(password),
+      password_changed_at: user.password_changed_at || new Date()
+    });
+  }
+};
+
+const issueAuthToken = (user) => {
+  const roles = [user.role];
+  return signToken({
+    sub: user.id,
+    id: user.id,
+    email: user.email,
+    name: user.full_name,
+    role: user.role,
+    roles,
+    tv: Number(user.token_version || 0)
+  });
+};
+
 router.post('/login', async (req, res) => {
   try {
     const email = String(req.body?.email || '').trim().toLowerCase();
@@ -83,35 +162,18 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    if (!isDevLoginAllowed()) {
-      return res.status(503).json({
-        error: 'Password login is disabled in production. Contact your administrator.'
-      });
-    }
-
     const user = await User.findOne({ where: { email, is_active: true } });
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
 
-    const expectedPassword = tempPasswords[user.role] || tempPasswords.student;
-    if (!expectedPassword) {
-      return res.status(500).json({ error: 'Temporary login passwords are not configured in the environment' });
-    }
-
-    if (password !== expectedPassword) {
+    const passwordValid = await verifyUserPassword(user, password);
+    if (!passwordValid) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    const roles = [user.role];
-    const token = signToken({
-      sub: user.id,
-      id: user.id,
-      email: user.email,
-      name: user.full_name,
-      role: user.role,
-      roles
-    });
+    await syncDefaultPasswordHash(user, password);
 
-    // Fire-and-forget login notification so auth response is not blocked by SMTP latency.
+    const token = issueAuthToken(user);
+
     setImmediate(() => {
       sendLoginNotification(
         {
@@ -133,7 +195,7 @@ router.post('/login', async (req, res) => {
         email: user.email,
         full_name: user.full_name,
         role: user.role,
-        roles
+        roles: [user.role]
       }
     });
   } catch (err) {
@@ -141,20 +203,50 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// JWT-backed registration endpoint
+router.post('/forgot-password', passwordResetLimiter, async (req, res) => {
+  try {
+    const result = await requestPasswordReset(req.body?.email);
+    res.json({ message: result.message || GENERIC_FORGOT_RESPONSE });
+  } catch (err) {
+    const status = err.status || 500;
+    if (status >= 500) {
+      return res.json({ message: GENERIC_FORGOT_RESPONSE });
+    }
+    return res.status(status).json({ error: err.message });
+  }
+});
+
+router.post('/reset-password', passwordResetLimiter, async (req, res) => {
+  try {
+    const result = await resetPasswordWithToken(req.body?.token, req.body?.password);
+    res.json({ message: result.message });
+  } catch (err) {
+    res.status(err.status || 500).json({
+      error: err.message,
+      details: err.details || undefined
+    });
+  }
+});
+
 router.post('/register', async (req, res) => {
   try {
+    const role = normalizeText(req.body?.role) || 'student';
+    const email = normalizeEmail(req.body?.email);
+    const semesterRaw = normalizeInteger(req.body?.semester);
     const payload = {
       full_name: normalizeText(req.body?.full_name),
-      email: normalizeEmail(req.body?.email),
-      role: normalizeText(req.body?.role) || 'student',
+      email,
+      password: String(req.body?.password || ''),
+      role,
       student_id: normalizeText(req.body?.student_id),
-      program: normalizeText(req.body?.program),
-      year_of_study: normalizeInteger(req.body?.year_of_study),
-      semester: normalizeInteger(req.body?.semester),
+      lecturer_id: normalizeText(req.body?.lecturer_id),
+      program: normalizeText(req.body?.program) || normalizeText(req.body?.programme),
+      year_of_study: normalizeInteger(req.body?.year_of_study)
+        ?? normalizeInteger(req.body?.academic_year),
+      semester: Number.isInteger(semesterRaw) ? semesterRaw : 1,
       mode: normalizeText(req.body?.mode),
-      institution: normalizeText(req.body?.institution),
-      staff_email: normalizeEmail(req.body?.staff_email)
+      institution: normalizeText(req.body?.institution) || normalizeText(req.body?.department),
+      staff_email: normalizeEmail(req.body?.staff_email) || email
     };
 
     const errors = validateRegistrationPayload(payload);
@@ -167,10 +259,13 @@ router.post('/register', async (req, res) => {
       return res.status(409).json({ error: 'A user with this email already exists' });
     }
 
-    if (payload.student_id) {
-      const existingStudent = await User.findOne({ where: { student_id: payload.student_id } });
-      if (existingStudent) {
-        return res.status(409).json({ error: 'student_id already exists' });
+    const institutionalId = payload.role === 'lecturer' ? payload.lecturer_id : payload.student_id;
+    if (institutionalId) {
+      const existingId = await User.findOne({ where: { student_id: institutionalId } });
+      if (existingId) {
+        return res.status(409).json({
+          error: payload.role === 'lecturer' ? 'lecturer_id already exists' : 'student_id already exists'
+        });
       }
     }
 
@@ -181,12 +276,20 @@ router.post('/register', async (req, res) => {
       }
     }
 
+    const passwordHash = await hashPassword(payload.password);
+
     const user = await User.create({
       id: uuidv4(),
       full_name: payload.full_name,
       email: payload.email,
       role: payload.role,
-      student_id: payload.role === 'student' ? payload.student_id : null,
+      password_hash: passwordHash,
+      password_changed_at: new Date(),
+      student_id: payload.role === 'student'
+        ? payload.student_id
+        : payload.role === 'lecturer'
+          ? payload.lecturer_id
+          : null,
       program: payload.role === 'student' ? payload.program : null,
       year_of_study: payload.role === 'student' ? payload.year_of_study : null,
       semester: payload.role === 'student' ? payload.semester : null,
@@ -202,7 +305,6 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// Sync authenticated user into local DB on first login
 router.post('/sync', keycloak.protect(), attachUser, async (req, res) => {
   try {
     const { id, email, name, roles } = req.user;
@@ -231,7 +333,6 @@ router.post('/sync', keycloak.protect(), attachUser, async (req, res) => {
   }
 });
 
-// Get current user profile
 router.get('/me', keycloak.protect(), attachUser, async (req, res) => {
   try {
     const user = await User.findByPk(req.user.id);

@@ -47,6 +47,7 @@ docker compose up --build
 
 ### Authentication
 - Email/password login and self-registration (`/login`, `/register`)
+- Secure password recovery: forgot/reset flow with Brevo SMTP email delivery
 - Role-based access: student, lecturer, admin
 - JWT stored client-side; `AuthProvider` + `useAuth()` on the frontend
 
@@ -83,7 +84,7 @@ sble/
 
 | Area | Base path |
 |---|---|
-| Auth | `/api/auth` |
+| Auth | `/api/auth` (login, register, forgot-password, reset-password) |
 | Courses & modules | `/api/courses` |
 | Materials, assignments, quizzes, exams | `/api/materials`, etc. |
 | Gradebook | `/api/gradebook` |

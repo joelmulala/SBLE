@@ -1,74 +1,116 @@
-import React, { useMemo, useState } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { useKeycloak } from '../auth/AuthProvider';
 import api from '../config/api';
+import {
+  AuthLayout,
+  AuthField,
+  AuthButton,
+  AuthAlert,
+  AuthActions,
+  AuthFooterLink,
+  AuthForm,
+  AuthSelect,
+  AuthSuccessPanel
+} from '../components/auth/AuthShell';
+import {
+  RegisterStepIndicator,
+  RegisterRoleStep,
+  AuthFieldGroup,
+  AuthPasswordStrength,
+  AuthPhotoUpload
+} from '../components/auth/register/RegisterComponents';
+import {
+  IconMail,
+  IconLock,
+  IconUser,
+  IconIdBadge,
+  IconBook,
+  IconBuilding
+} from '../components/auth/AuthIcons';
+import {
+  validateStudentForm,
+  validateLecturerForm
+} from '../utils/registerValidation';
+import styles from '../components/auth/AuthLayout.module.css';
 
-const initialForm = {
-  role: 'student',
+const emptyStudent = {
   full_name: '',
+  student_id: '',
   email: '',
   password: '',
-  student_id: '',
+  confirmPassword: '',
   program: '',
   year_of_study: '',
-  semester: '',
-  mode: 'Full-time',
-  institution: '',
-  staff_email: ''
+  mode: 'Full-time'
 };
 
-const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const emptyLecturer = {
+  full_name: '',
+  lecturer_id: '',
+  email: '',
+  department: '',
+  password: '',
+  confirmPassword: ''
+};
 
 export default function Register() {
   const navigate = useNavigate();
   const { keycloak, initialized } = useKeycloak();
-  const [form, setForm] = useState(initialForm);
+  const [step, setStep] = useState('role');
+  const [role, setRole] = useState(null);
+  const [studentForm, setStudentForm] = useState(emptyStudent);
+  const [lecturerForm, setLecturerForm] = useState(emptyLecturer);
+  const [photoFile, setPhotoFile] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState(null);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [createdEmail, setCreatedEmail] = useState('');
 
-  const isStudent = form.role === 'student';
-  const isLecturer = form.role === 'lecturer';
+  const isStudent = role === 'student';
+  const form = isStudent ? studentForm : lecturerForm;
 
-  const passwordNote = useMemo(() => (
-    isLecturer
-      ? 'Create your lecturer account details and continue to login after registration.'
-      : 'Create your student account details and continue to login after registration.'
-  ), [isLecturer]);
+  useEffect(() => () => {
+    if (photoPreview) URL.revokeObjectURL(photoPreview);
+  }, [photoPreview]);
 
   if (initialized && keycloak.authenticated) {
     return <Navigate to="/" replace />;
   }
 
-  const updateField = (field, value) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
+  const updateStudent = (field, value) => {
+    setStudentForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  const validate = () => {
-    if (!form.full_name.trim()) return 'Full name is required';
-    if (!emailPattern.test(form.email.trim())) return 'Enter a valid email address';
-    if (!form.password.trim()) return 'Password must not be empty';
+  const updateLecturer = (field, value) => {
+    setLecturerForm((prev) => ({ ...prev, [field]: value }));
+  };
 
-    if (isStudent) {
-      if (!form.student_id.trim()) return 'Student ID is required';
-      if (!form.program.trim()) return 'Program is required';
-      if (!form.year_of_study) return 'Year of study is required';
-      if (!form.semester) return 'Semester is required';
-      if (!form.mode) return 'Mode is required';
-    }
+  const handleRoleSelect = (nextRole) => {
+    setRole(nextRole);
+    setError('');
+    setStep('form');
+  };
 
-    if (isLecturer) {
-      if (!form.institution.trim()) return 'Institution is required';
-      if (!emailPattern.test(form.staff_email.trim())) return 'Enter a valid staff email';
-    }
+  const handleBack = () => {
+    setError('');
+    setStep('role');
+  };
 
-    return '';
+  const handlePhotoChange = (file, preview) => {
+    if (photoPreview) URL.revokeObjectURL(photoPreview);
+    setPhotoFile(file);
+    setPhotoPreview(preview);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
 
-    const validationError = validate();
+    const validationError = isStudent
+      ? validateStudentForm(studentForm)
+      : validateLecturerForm(lecturerForm);
+
     if (validationError) {
       setError(validationError);
       return;
@@ -76,225 +118,296 @@ export default function Register() {
 
     setSubmitting(true);
     try {
-      const payload = {
-        role: form.role,
-        full_name: form.full_name.trim(),
-        email: form.email.trim(),
-        password: form.password,
-        ...(isStudent
-          ? {
-              student_id: form.student_id.trim(),
-              program: form.program.trim(),
-              year_of_study: Number(form.year_of_study),
-              semester: Number(form.semester),
-              mode: form.mode
-            }
-          : {
-              institution: form.institution.trim(),
-              staff_email: form.staff_email.trim()
-            })
-      };
+      const payload = isStudent
+        ? {
+            role: 'student',
+            full_name: studentForm.full_name.trim(),
+            email: studentForm.email.trim(),
+            password: studentForm.password,
+            student_id: studentForm.student_id.trim(),
+            programme: studentForm.program.trim(),
+            academic_year: Number(studentForm.year_of_study),
+            mode: studentForm.mode,
+            semester: 1
+          }
+        : {
+            role: 'lecturer',
+            full_name: lecturerForm.full_name.trim(),
+            email: lecturerForm.email.trim(),
+            password: lecturerForm.password,
+            lecturer_id: lecturerForm.lecturer_id.trim(),
+            department: lecturerForm.department.trim()
+          };
 
       await api.post('/auth/register', payload);
-      navigate('/login', { replace: true });
+
+      if (photoFile) {
+        try {
+          sessionStorage.setItem(
+            'sble_pending_profile_photo',
+            JSON.stringify({ email: payload.email, savedAt: Date.now() })
+          );
+        } catch (_) { /* optional client hint only */ }
+      }
+
+      setCreatedEmail(payload.email);
+      setStep('success');
     } catch (err) {
-      setError(err.response?.data?.error || 'Registration failed. Please try again.');
+      setError(err.userMessage || err.response?.data?.error || 'Registration failed. Please try again.');
     } finally {
       setSubmitting(false);
     }
   };
 
+  const layoutTitle = step === 'role'
+    ? 'Create your account'
+    : step === 'success'
+      ? 'Welcome to SBLE'
+      : isStudent
+        ? 'Student registration'
+        : 'Lecturer registration';
+
+  const layoutSubtitle = step === 'role'
+    ? 'Choose your role to begin institutional onboarding.'
+    : step === 'success'
+      ? 'Your account has been created successfully.'
+      : isStudent
+        ? 'Enter your academic details to access courses and live classes.'
+        : 'Enter your teaching credentials to manage courses and sessions.';
+
+  const visualCaption = step === 'success'
+    ? (
+      <>
+        <p>You are ready to sign in</p>
+        <span>Access your blended learning workspace with your new credentials.</span>
+      </>
+    )
+    : (
+      <>
+        <p>Institutional onboarding</p>
+        <span>Structured registration for students and teaching staff.</span>
+      </>
+    );
+
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        display: 'grid',
-        placeItems: 'center',
-        background: 'linear-gradient(135deg, #f4f7fb 0%, #eef3ff 100%)',
-        padding: 20
-      }}
+    <AuthLayout
+      title={layoutTitle}
+      subtitle={layoutSubtitle}
+      visualCaption={visualCaption}
     >
-      <div
-        style={{
-          width: '100%',
-          maxWidth: 520,
-          background: '#fff',
-          borderRadius: 16,
-          boxShadow: '0 16px 40px rgba(15, 23, 42, 0.10)',
-          padding: 30,
-          border: '1px solid #e7ecf5'
-        }}
-      >
-        <div style={{ marginBottom: 22 }}>
-          <p style={{ margin: 0, color: '#4f8ef7', fontSize: '0.82rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-            Secure LMS
-          </p>
-          <h1 style={{ margin: '8px 0 10px', fontSize: '1.7rem', lineHeight: 1.25, color: '#1f2937' }}>
-            Create Your SBLE Account
-          </h1>
-          <p style={{ color: '#667085', margin: 0 }}>
-            Register to access courses and academic resources in the Secure Blended Learning Environment.
-          </p>
-        </div>
+      <div className={styles.formInnerWide}>
+        <RegisterStepIndicator step={step} />
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <select
-            value={form.role}
-            onChange={(e) => updateField('role', e.target.value)}
-            style={inputStyle}
-          >
-            <option value="student">Student</option>
-            <option value="lecturer">Lecturer</option>
-          </select>
+        {step === 'role' && (
+          <RegisterRoleStep onSelect={handleRoleSelect} />
+        )}
 
-          <input
-            type="text"
-            value={form.full_name}
-            onChange={(e) => updateField('full_name', e.target.value)}
-            placeholder="Full name"
-            required
-            style={inputStyle}
-          />
-          <input
-            type="email"
-            value={form.email}
-            onChange={(e) => updateField('email', e.target.value)}
-            placeholder="Email address"
-            required
-            style={inputStyle}
-          />
-          <input
-            type="password"
-            value={form.password}
-            onChange={(e) => updateField('password', e.target.value)}
-            placeholder="Password"
-            required
-            style={inputStyle}
-          />
-
-          {isStudent && (
-            <>
-              <input
-                type="text"
-                value={form.student_id}
-                onChange={(e) => updateField('student_id', e.target.value)}
-                placeholder="Student ID"
-                required
-                style={inputStyle}
-              />
-              <input
-                type="text"
-                value={form.program}
-                onChange={(e) => updateField('program', e.target.value)}
-                placeholder="Program"
-                required
-                style={inputStyle}
-              />
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <input
-                  type="number"
-                  min="1"
-                  value={form.year_of_study}
-                  onChange={(e) => updateField('year_of_study', e.target.value)}
-                  placeholder="Year of study"
-                  required
-                  style={inputStyle}
-                />
-                <input
-                  type="number"
-                  min="1"
-                  value={form.semester}
-                  onChange={(e) => updateField('semester', e.target.value)}
-                  placeholder="Semester"
-                  required
-                  style={inputStyle}
-                />
-              </div>
-              <select
-                value={form.mode}
-                onChange={(e) => updateField('mode', e.target.value)}
-                style={inputStyle}
-              >
-                <option value="Full-time">Full-time</option>
-                <option value="Evening">Evening</option>
-                <option value="ODL">ODL</option>
-              </select>
-            </>
-          )}
-
-          {isLecturer && (
-            <>
-              <input
-                type="text"
-                value={form.institution}
-                onChange={(e) => updateField('institution', e.target.value)}
-                placeholder="Institution"
-                required
-                style={inputStyle}
-              />
-              <input
-                type="email"
-                value={form.staff_email}
-                onChange={(e) => updateField('staff_email', e.target.value)}
-                placeholder="Staff email"
-                required
-                style={inputStyle}
-              />
-            </>
-          )}
-
-          {error && (
-            <div
-              style={{
-                color: '#b42318',
-                background: '#fef3f2',
-                border: '1px solid #fecdca',
-                borderRadius: 10,
-                padding: '10px 12px',
-                fontSize: '0.92rem'
-              }}
+        {step === 'success' && (
+          <div className={styles.form}>
+            <AuthSuccessPanel title="Account created">
+              Your
+              {' '}
+              {isStudent ? 'student' : 'lecturer'}
+              {' '}
+              account is ready. Sign in with
+              {' '}
+              <strong>{createdEmail}</strong>
+              {' '}
+              to access your workspace.
+            </AuthSuccessPanel>
+            {photoFile ? (
+              <AuthAlert type="info">
+                Your profile photo will be available to upload from your account settings after sign-in.
+              </AuthAlert>
+            ) : null}
+            <AuthButton
+              type="button"
+              onClick={() => navigate('/login', { replace: true, state: { registered: true } })}
             >
-              {error}
-            </div>
-          )}
+              Continue to sign in
+            </AuthButton>
+            <AuthActions>
+              <AuthFooterLink to="/forgot-password" variant="secondary">
+                Forgot password?
+              </AuthFooterLink>
+            </AuthActions>
+          </div>
+        )}
 
-          <button
-            type="submit"
-            disabled={submitting}
-            style={{
-              background: '#4f8ef7',
-              color: '#fff',
-              border: 'none',
-              borderRadius: 10,
-              padding: '11px 14px',
-              cursor: 'pointer',
-              fontWeight: 600,
-              fontSize: '0.96rem'
-            }}
-          >
-            {submitting ? 'Creating account...' : 'Create Account'}
-          </button>
-        </form>
+        {step === 'form' && role && (
+          <>
+            <button type="button" className={styles.backLink} onClick={handleBack}>
+              ← Change account type
+            </button>
+            <span className={styles.roleBadge} data-role={role}>
+              {isStudent ? 'Student' : 'Lecturer'}
+            </span>
 
-        <div style={{ marginTop: 14, color: '#667085', fontSize: '0.9rem' }}>
-          <p style={{ margin: 0 }}>{passwordNote}</p>
-        </div>
+            <AuthForm onSubmit={handleSubmit} loading={submitting} aria-label="Registration details">
+              <AuthFieldGroup
+                title="Personal information"
+                description="Use your official institutional name and ID."
+              >
+                <AuthField
+                  id="reg-name"
+                  label="Full name"
+                  type="text"
+                  icon={IconUser}
+                  autoComplete="name"
+                  placeholder="As on your institutional records"
+                  value={form.full_name}
+                  onChange={(e) => (isStudent
+                    ? updateStudent('full_name', e.target.value)
+                    : updateLecturer('full_name', e.target.value))}
+                  required
+                  disabled={submitting}
+                />
+                <AuthField
+                  id="reg-id"
+                  label={isStudent ? 'Student ID' : 'Lecturer ID'}
+                  type="text"
+                  icon={IconIdBadge}
+                  placeholder={isStudent ? 'e.g. STU-2026-001' : 'e.g. LEC-2024-042'}
+                  value={isStudent ? studentForm.student_id : lecturerForm.lecturer_id}
+                  onChange={(e) => (isStudent
+                    ? updateStudent('student_id', e.target.value)
+                    : updateLecturer('lecturer_id', e.target.value))}
+                  required
+                  disabled={submitting}
+                />
+                <AuthField
+                  id="reg-email"
+                  label="Email address"
+                  type="email"
+                  icon={IconMail}
+                  autoComplete="email"
+                  placeholder="you@university.edu"
+                  value={form.email}
+                  onChange={(e) => (isStudent
+                    ? updateStudent('email', e.target.value)
+                    : updateLecturer('email', e.target.value))}
+                  required
+                  disabled={submitting}
+                />
+                <AuthPhotoUpload
+                  file={photoFile}
+                  previewUrl={photoPreview}
+                  onChange={handlePhotoChange}
+                  disabled={submitting}
+                />
+              </AuthFieldGroup>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginTop: 16, flexWrap: 'wrap' }}>
-          <span style={{ color: '#667085', fontSize: '0.92rem' }}>Already have an account?</span>
-          <Link to="/login" style={{ color: '#4f8ef7', fontWeight: 600, textDecoration: 'none' }}>
-            Back to Login
-          </Link>
-        </div>
+              {isStudent ? (
+                <AuthFieldGroup
+                  title="Academic details"
+                  description="Your programme and study mode help lecturers place you correctly."
+                >
+                  <AuthField
+                    id="reg-program"
+                    label="Programme"
+                    type="text"
+                    icon={IconBook}
+                    placeholder="e.g. BSc Computer Science"
+                    value={studentForm.program}
+                    onChange={(e) => updateStudent('program', e.target.value)}
+                    required
+                    disabled={submitting}
+                  />
+                  <AuthField
+                    id="reg-year"
+                    label="Academic year"
+                    type="number"
+                    placeholder="1"
+                    value={studentForm.year_of_study}
+                    onChange={(e) => updateStudent('year_of_study', e.target.value)}
+                    required
+                    disabled={submitting}
+                  />
+                  <AuthSelect
+                    id="reg-mode"
+                    label="Study mode"
+                    value={studentForm.mode}
+                    onChange={(e) => updateStudent('mode', e.target.value)}
+                    disabled={submitting}
+                    required
+                    options={[
+                      { value: 'Full-time', label: 'Full-time' },
+                      { value: 'Evening', label: 'Evening' },
+                      { value: 'ODL', label: 'ODL (Open & Distance Learning)' }
+                    ]}
+                  />
+                </AuthFieldGroup>
+              ) : (
+                <AuthFieldGroup
+                  title="Teaching affiliation"
+                  description="Your department is used for course administration."
+                >
+                  <AuthField
+                    id="reg-department"
+                    label="Department"
+                    type="text"
+                    icon={IconBuilding}
+                    placeholder="e.g. Faculty of Computing"
+                    value={lecturerForm.department}
+                    onChange={(e) => updateLecturer('department', e.target.value)}
+                    required
+                    disabled={submitting}
+                  />
+                </AuthFieldGroup>
+              )}
+
+              <AuthFieldGroup title="Security" description="Choose a strong password for your account.">
+                <AuthField
+                  id="reg-password"
+                  label="Password"
+                  type="password"
+                  icon={IconLock}
+                  autoComplete="new-password"
+                  placeholder="Create a strong password"
+                  value={form.password}
+                  onChange={(e) => (isStudent
+                    ? updateStudent('password', e.target.value)
+                    : updateLecturer('password', e.target.value))}
+                  required
+                  disabled={submitting}
+                />
+                <AuthPasswordStrength password={form.password} />
+                <AuthField
+                  id="reg-confirm"
+                  label="Confirm password"
+                  type="password"
+                  icon={IconLock}
+                  autoComplete="new-password"
+                  placeholder="Re-enter your password"
+                  value={form.confirmPassword}
+                  onChange={(e) => (isStudent
+                    ? updateStudent('confirmPassword', e.target.value)
+                    : updateLecturer('confirmPassword', e.target.value))}
+                  required
+                  disabled={submitting}
+                />
+              </AuthFieldGroup>
+
+              {error ? <AuthAlert type="error">{error}</AuthAlert> : null}
+
+              {submitting && !error ? (
+                <AuthAlert type="info" title="Creating your account">
+                  Setting up your institutional profile…
+                </AuthAlert>
+              ) : null}
+
+              <AuthButton loading={submitting} disabled={submitting}>
+                {submitting ? 'Creating account…' : 'Create account'}
+              </AuthButton>
+
+              <AuthActions>
+                <span className={styles.note}>Already have an account?</span>
+                <AuthFooterLink to="/login">Sign in</AuthFooterLink>
+              </AuthActions>
+            </AuthForm>
+          </>
+        )}
       </div>
-    </div>
+    </AuthLayout>
   );
 }
-
-const inputStyle = {
-  padding: '11px 12px',
-  borderRadius: 10,
-  border: '1px solid #d7deea',
-  outline: 'none',
-  fontSize: '0.95rem'
-};

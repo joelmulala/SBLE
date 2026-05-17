@@ -1,0 +1,7 @@
+.art {
+  width: min(200px, 72vw);
+  height: auto;
+  margin: 0 auto 1.25rem;
+  display: block;
+  opacity: 0.92;
+}

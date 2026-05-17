@@ -4,7 +4,7 @@ const keycloak = require('../config/keycloak');
 const { attachUser, requireLecturer, authorizeCourseAccess, audit } = require('../middleware/auth');
 const { upload } = require('../services/storage/uploadService');
 const { encryptFile, decryptFileToStream } = require('../services/encryption/fileEncryption');
-const { Exam, Enrollment, User, Course } = require('../models');
+const { Exam, ExamStudentAccess, Enrollment, User, Course } = require('../models');
 const { requireNonemptyTitle } = require('../utils/validation');
 const { parseDbDate, toSequelizeDate } = require('../utils/datetime');
 const { sendExamReleaseNotification } = require('../services/email/emailService');
@@ -101,6 +101,20 @@ const decorateExam = (exam) => {
 
 const filterExamsForStudent = (exams) => exams.filter((exam) => exam.is_released);
 
+const attachStudentExamAccess = async (exams, studentId) => {
+  if (!exams.length) return exams;
+  const ids = exams.map((e) => e.id);
+  const rows = await ExamStudentAccess.findAll({
+    where: { student_id: studentId, exam_id: ids }
+  });
+  const byExam = new Map(rows.map((r) => [r.exam_id, r]));
+  exams.forEach((exam) => {
+    const row = byExam.get(exam.id);
+    exam.setDataValue('myAccess', row ? { accessed_at: row.accessed_at } : null);
+  });
+  return exams;
+};
+
 const ensureExamWindowOpenForStudent = (exam) => {
   const { startTime, endTime } = getExamWindow(exam);
   const now = Date.now();
@@ -170,10 +184,12 @@ router.get('/course/:courseId', ...guard, authorizeCourseAccess(req => req.param
     if (!isLecturer) where.is_released = true;
 
     const exams = await Exam.findAll({ where, order: [['scheduled_at', 'ASC'], ['created_at', 'DESC']] });
-    const decorated = exams.map(decorateExam);
+    let decorated = exams.map(decorateExam);
 
     if (!isLecturer) {
-      return res.json(filterExamsForStudent(decorated));
+      decorated = filterExamsForStudent(decorated);
+      decorated = await attachStudentExamAccess(decorated, req.user.id);
+      return res.json(decorated);
     }
 
     res.json(decorated);
@@ -287,11 +303,53 @@ router.get('/:id/download', ...guard,
 
     if (!isLecturer) {
       ensureExamWindowOpenForStudent(exam);
+      await ExamStudentAccess.findOrCreate({
+        where: { exam_id: exam.id, student_id: req.user.id },
+        defaults: { accessed_at: new Date() }
+      });
     }
 
     res.setHeader('Content-Disposition', `attachment; filename="exam_${exam.id}.pdf"`);
     res.setHeader('Content-Type', 'application/pdf');
     await decryptFileToStream(exam.file_path, res);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+router.get('/:id/participants', ...guard, requireLecturer,
+  authorizeCourseAccess(async (req) => {
+    const exam = await Exam.findByPk(req.params.id);
+    if (!exam) {
+      const err = new Error('Exam not found');
+      err.status = 404;
+      throw err;
+    }
+    return exam.course_id;
+  }, { managerOnly: true }), async (req, res) => {
+  try {
+    const exam = await Exam.findByPk(req.params.id);
+    const accesses = await ExamStudentAccess.findAll({
+      where: { exam_id: req.params.id },
+      include: [{ model: User, as: 'student', attributes: ['id', 'full_name', 'email', 'student_id'] }],
+      order: [['accessed_at', 'DESC']]
+    });
+
+    const enrollmentCount = await Enrollment.count({ where: { course_id: exam.course_id } });
+
+    res.json({
+      enrollmentCount,
+      participants: accesses.map((row) => ({
+        id: row.id,
+        accessed_at: row.accessed_at,
+        student: row.student ? {
+          id: row.student.id,
+          full_name: row.student.full_name,
+          email: row.student.email,
+          student_id: row.student.student_id
+        } : null
+      }))
+    });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }

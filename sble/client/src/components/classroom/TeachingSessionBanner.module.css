@@ -1,0 +1,52 @@
+.banner {
+  position: absolute;
+  top: 0.65rem;
+  right: 0.65rem;
+  z-index: 12;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.2rem;
+  max-width: min(22rem, 70vw);
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: #cbd5e1;
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+
+.mode {
+  font-weight: 700;
+  color: #f1f5f9;
+  letter-spacing: -0.01em;
+}
+
+.sep {
+  opacity: 0.45;
+  user-select: none;
+}
+
+.stat {
+  font-variant-numeric: tabular-nums;
+}
+
+.hands {
+  color: #fcd34d;
+  font-weight: 600;
+}
+
+@media (max-width: 520px) {
+  .banner {
+    top: auto;
+    bottom: 5.25rem;
+    right: 0.5rem;
+    left: 0.5rem;
+    max-width: none;
+    justify-content: center;
+  }
+}

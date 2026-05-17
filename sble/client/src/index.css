@@ -98,9 +98,11 @@ p {
 }
 
 .page-title {
-  font-size: var(--fs-4);
-  font-weight: 700;
+  font-family: var(--font-academic);
+  font-size: var(--fs-3);
+  font-weight: 600;
   letter-spacing: -0.02em;
+  line-height: var(--lh-tight);
 }
 
 .page-lead {

@@ -1,11 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import api from '../config/api';
 import { buildFileUploadFormData, triggerBlobDownload } from '../utils/fileTransfer';
 import {
   resolveCourseAccessMessage,
   feedbackAlertType,
-  getAssignmentStudentUiState,
   useAssessmentRoles
 } from '../assessment';
 import {
@@ -15,24 +14,20 @@ import {
   AssessmentSectionTitle,
   AssessmentMeta,
   AssessmentAlert,
-  AssessmentEmpty,
   AssessmentList,
-  AssessmentToolbar,
   BtnPrimary,
-  BtnSecondary,
-  BtnDanger,
   Field,
   TextInput,
-  TextArea,
-  QueueItem,
-  GradingForm,
-  StatusBadge,
-  CardTitleRow,
-  StatsRow,
-  Stat
+  TextArea
 } from '../components/assessment/AssessmentPrimitives';
 import CoursePageFrame from '../components/workspace/CoursePageFrame';
+import LecturerAssignmentCard from '../components/assignments/LecturerAssignmentCard';
+import StudentAssignmentCard from '../components/assignments/StudentAssignmentCard';
+import GradingPanel from '../components/assignments/GradingPanel';
+import AssignmentsEmptyState from '../components/assignments/AssignmentsEmptyState';
+import { computeAssignmentStats } from '../components/assignments/assignmentUtils';
 import s from '../components/assessment/AssessmentPrimitives.module.css';
+import dash from '../components/assignments/Assignments.module.css';
 
 export default function Assignments() {
   const { courseId } = useParams();
@@ -42,8 +37,10 @@ export default function Assignments() {
   const [form, setForm] = useState({ title: '', description: '', due_date: '' });
   const [assignmentFile, setAssignmentFile] = useState(null);
   const [submitFile, setSubmitFile] = useState({});
+  const [uploadProgress, setUploadProgress] = useState({});
   const [submittingId, setSubmittingId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [confirmId, setConfirmId] = useState(null);
   const [openSubmissionsAssignmentId, setOpenSubmissionsAssignmentId] = useState(null);
   const [submissionsByAssignment, setSubmissionsByAssignment] = useState({});
   const [submissionsError, setSubmissionsError] = useState('');
@@ -59,6 +56,13 @@ export default function Assignments() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+
+  const loadSubmissions = useCallback(async (assignmentId) => {
+    const res = await api.get(`/assignments/${assignmentId}/submissions`);
+    const list = Array.isArray(res.data) ? res.data : [];
+    setSubmissionsByAssignment((prev) => ({ ...prev, [assignmentId]: list }));
+    return list;
+  }, []);
 
   useEffect(() => {
     const loadAssignments = async () => {
@@ -80,7 +84,17 @@ export default function Assignments() {
 
         const endpoint = courseId ? `/assignments/course/${courseId}` : '/assignments';
         const res = await api.get(endpoint);
-        setAssignments(Array.isArray(res.data) ? res.data : []);
+        const list = Array.isArray(res.data) ? res.data : [];
+        setAssignments(list);
+
+        if (isLecturer && list.length) {
+          const results = await Promise.all(
+            list.map((a) => loadSubmissions(a.id).catch(() => []))
+          );
+          const map = {};
+          list.forEach((a, i) => { map[a.id] = results[i] || []; });
+          setSubmissionsByAssignment(map);
+        }
       } catch (err) {
         setAssignments([]);
         setError(resolveCourseAccessMessage(err, 'Failed to load assignments.'));
@@ -90,7 +104,21 @@ export default function Assignments() {
     };
 
     loadAssignments();
-  }, [courseId, isStudent]);
+  }, [courseId, isStudent, isLecturer, loadSubmissions]);
+
+  const lecturerSummary = useMemo(() => {
+    if (!isLecturer) return null;
+    let total = 0;
+    let graded = 0;
+    let pending = 0;
+    Object.values(submissionsByAssignment).forEach((list) => {
+      const stats = computeAssignmentStats(list);
+      total += stats.total;
+      graded += stats.graded;
+      pending += stats.pending;
+    });
+    return { total, graded, pending };
+  }, [isLecturer, submissionsByAssignment]);
 
   const updateAssignmentSubmission = (assignmentId, submission) => {
     setAssignments((prev) => prev.map((assignment) => (
@@ -102,7 +130,6 @@ export default function Assignments() {
 
   const createAssignment = async (e) => {
     e.preventDefault();
-
     if (!form.title.trim()) {
       setError('Please enter an assignment title.');
       return;
@@ -125,6 +152,7 @@ export default function Assignments() {
 
       const res = await api.post('/assignments', payload);
       setAssignments((prev) => [res.data, ...prev]);
+      setSubmissionsByAssignment((prev) => ({ ...prev, [res.data.id]: [] }));
       setForm({ title: '', description: '', due_date: '' });
       setAssignmentFile(null);
       setMessage(assignmentFile ? 'Assignment created and file uploaded successfully.' : 'Assignment created successfully.');
@@ -146,8 +174,10 @@ export default function Assignments() {
     }
 
     setSubmittingId(assignmentId);
+    setUploadProgress((prev) => ({ ...prev, [assignmentId]: 0 }));
     setMessage('');
     setError('');
+    setConfirmId(null);
 
     const fd = buildFileUploadFormData({
       file,
@@ -156,15 +186,28 @@ export default function Assignments() {
     });
 
     try {
-      const res = await api.post(`/assignments/${assignmentId}/submit`, fd);
+      const res = await api.post(`/assignments/${assignmentId}/submit`, fd, {
+        onUploadProgress: (e) => {
+          if (e.total) {
+            setUploadProgress((prev) => ({
+              ...prev,
+              [assignmentId]: Math.round((e.loaded * 100) / e.total)
+            }));
+          }
+        }
+      });
       updateAssignmentSubmission(assignmentId, res.data);
       setSubmitFile((prev) => ({ ...prev, [assignmentId]: null }));
+      setUploadProgress((prev) => ({ ...prev, [assignmentId]: 100 }));
+      setConfirmId(assignmentId);
       setMessage(existingSubmission ? 'Submission updated successfully.' : 'Submission uploaded successfully.');
     } catch (err) {
-      const serverMessage = resolveCourseAccessMessage(err, 'Failed to submit assignment.');
-      setMessage(serverMessage);
+      setMessage(resolveCourseAccessMessage(err, 'Failed to submit assignment.'));
     } finally {
       setSubmittingId(null);
+      setTimeout(() => {
+        setUploadProgress((prev) => ({ ...prev, [assignmentId]: null }));
+      }, 800);
     }
   };
 
@@ -180,7 +223,8 @@ export default function Assignments() {
       await api.delete(`/assignments/submissions/${submission.id}`);
       updateAssignmentSubmission(assignmentId, null);
       setSubmitFile((prev) => ({ ...prev, [assignmentId]: null }));
-      setMessage('Submission deleted. You can resubmit before the due date.');
+      setConfirmId(null);
+      setMessage('Submission removed. You can upload again before the due date.');
     } catch (err) {
       setMessage(resolveCourseAccessMessage(err, 'Failed to delete submission.'));
     } finally {
@@ -191,6 +235,7 @@ export default function Assignments() {
   const toggleSubmissions = async (assignmentId) => {
     if (openSubmissionsAssignmentId === assignmentId) {
       setOpenSubmissionsAssignmentId(null);
+      setGradingSubmission(null);
       setSubmissionsError('');
       return;
     }
@@ -200,11 +245,7 @@ export default function Assignments() {
     setLoadingSubmissionsId(assignmentId);
 
     try {
-      const res = await api.get(`/assignments/${assignmentId}/submissions`);
-      setSubmissionsByAssignment((prev) => ({
-        ...prev,
-        [assignmentId]: Array.isArray(res.data) ? res.data : []
-      }));
+      await loadSubmissions(assignmentId);
     } catch (err) {
       setSubmissionsByAssignment((prev) => ({ ...prev, [assignmentId]: [] }));
       setSubmissionsError(err?.response?.data?.error || 'Failed to load submissions.');
@@ -213,13 +254,13 @@ export default function Assignments() {
     }
   };
 
-  const downloadSubmission = async (submissionId, fileName) => {
-    setDownloadingSubmissionId(submissionId);
+  const downloadSubmission = async (entry) => {
+    setDownloadingSubmissionId(entry.id);
     setSubmissionsError('');
 
     try {
-      const response = await api.get(`/assignments/submissions/${submissionId}/download`, { responseType: 'blob' });
-      triggerBlobDownload(response, fileName || `submission-${submissionId}`);
+      const response = await api.get(`/assignments/submissions/${entry.id}/download`, { responseType: 'blob' });
+      triggerBlobDownload(response, entry.file_name || `submission-${entry.id}`);
     } catch (err) {
       setSubmissionsError(err?.response?.data?.error || 'Download failed.');
     } finally {
@@ -232,9 +273,10 @@ export default function Assignments() {
     setGradeField(entry.grade != null && entry.grade !== '' ? String(entry.grade) : '');
     setFeedbackField(entry.feedback || '');
     setPublishField(entry.grading_status === 'published');
+    setSubmissionsError('');
   };
 
-  const saveGrading = async () => {
+  const persistGrading = async (shouldPublish) => {
     if (!gradingSubmission?.id || !openSubmissionsAssignmentId) return;
     setGradingSaving(true);
     setSubmissionsError('');
@@ -242,15 +284,11 @@ export default function Assignments() {
       await api.patch(`/assignments/submissions/${gradingSubmission.id}/grade`, {
         grade: gradeField,
         feedback: feedbackField,
-        publish: publishField
+        publish: shouldPublish
       });
-      const res = await api.get(`/assignments/${openSubmissionsAssignmentId}/submissions`);
-      setSubmissionsByAssignment((prev) => ({
-        ...prev,
-        [openSubmissionsAssignmentId]: Array.isArray(res.data) ? res.data : []
-      }));
+      await loadSubmissions(openSubmissionsAssignmentId);
       setGradingSubmission(null);
-      setMessage('Grading saved.');
+      setMessage(shouldPublish ? 'Results published to student and gradebook.' : 'Draft grade saved.');
     } catch (err) {
       setSubmissionsError(err?.response?.data?.error || 'Failed to save grade.');
     } finally {
@@ -258,14 +296,14 @@ export default function Assignments() {
     }
   };
 
-  const downloadAssignmentFile = async (assignmentId, fileName) => {
-    setDownloadingAssignmentId(assignmentId);
+  const downloadAssignmentFile = async (assignment) => {
+    setDownloadingAssignmentId(assignment.id);
     setMessage('');
     setError('');
 
     try {
-      const response = await api.get(`/assignments/${assignmentId}/download`, { responseType: 'blob' });
-      triggerBlobDownload(response, fileName || `assignment-${assignmentId}`);
+      const response = await api.get(`/assignments/${assignment.id}/download`, { responseType: 'blob' });
+      triggerBlobDownload(response, assignment.file_name || `assignment-${assignment.id}`);
     } catch (err) {
       setMessage(err?.response?.data?.error || 'Failed to download assignment file.');
     } finally {
@@ -274,240 +312,142 @@ export default function Assignments() {
   };
 
   const messageAlertType = message ? feedbackAlertType(message) : null;
+  const activeAssignment = assignments.find((a) => a.id === openSubmissionsAssignmentId);
 
   return (
     <AssessmentShell wide={isLecturer}>
       <CoursePageFrame courseId={courseId} pageTitle="Assignments">
-      <AssessmentPageHeader
-        kicker={isLecturer ? 'Teaching · assessment' : 'Learning · assessment'}
-        title="Assignments"
-        lead={
-          isLecturer
-            ? 'Review briefs, due dates, and the submission queue. Grading tools open only from each assignment’s submission list.'
-            : 'Read the brief, track your submission status, and upload work before the due date. Feedback appears here once released.'
-        }
-      />
+        <AssessmentPageHeader
+          kicker={isLecturer ? 'Teaching · assessment' : 'Learning · assessment'}
+          title="Assignments"
+          lead={
+            isLecturer
+              ? 'Manage briefs, track submission progress, and complete grading in a structured workspace.'
+              : 'View requirements, submit coursework, and read feedback once your lecturer releases results.'
+          }
+        />
 
-      {loading && <AssessmentMeta>Loading assignments…</AssessmentMeta>}
-      {error ? <AssessmentAlert type="error">{error}</AssessmentAlert> : null}
-      {message && messageAlertType ? (
-        <AssessmentAlert type={messageAlertType}>{message}</AssessmentAlert>
-      ) : null}
+        {loading && <AssessmentMeta>Loading assignments…</AssessmentMeta>}
+        {error ? <AssessmentAlert type="error">{error}</AssessmentAlert> : null}
+        {message && messageAlertType ? (
+          <AssessmentAlert type={messageAlertType}>{message}</AssessmentAlert>
+        ) : null}
 
-      {isLecturer && (
-        <AssessmentCard>
-          <AssessmentSectionTitle>Create assignment</AssessmentSectionTitle>
-          <form onSubmit={createAssignment} className={s.formGrid}>
-            <Field label="Title">
-              <TextInput value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Assignment title" required />
-            </Field>
-            <Field label="Instructions / description">
-              <TextArea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="What students should submit and how it will be evaluated" rows={4} />
-            </Field>
-            <Field label="Due date">
-              <TextInput type="datetime-local" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} />
-            </Field>
-            <div>
-              <input
-                type="file"
-                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                onChange={(e) => setAssignmentFile(e.target.files?.[0] || null)}
-              />
-              <p className={s.inlineHint}>Optional: attach a file students can download (brief, rubric, or template).</p>
+        {isLecturer && lecturerSummary && assignments.length > 0 ? (
+          <div className={dash.dashboard}>
+            <div className={dash.summaryStrip}>
+              <div className={dash.summaryCard}>
+                <span className={dash.summaryValue}>{assignments.length}</span>
+                <span className={dash.summaryLabel}>Assignments</span>
+              </div>
+              <div className={dash.summaryCard}>
+                <span className={dash.summaryValue}>{lecturerSummary.total}</span>
+                <span className={dash.summaryLabel}>Submissions</span>
+              </div>
+              <div className={dash.summaryCard}>
+                <span className={dash.summaryValue}>{lecturerSummary.graded}</span>
+                <span className={dash.summaryLabel}>Graded</span>
+              </div>
+              <div className={dash.summaryCard}>
+                <span className={dash.summaryValue}>{lecturerSummary.pending}</span>
+                <span className={dash.summaryLabel}>Pending review</span>
+              </div>
             </div>
-            <div>
-              <BtnPrimary type="submit" disabled={creatingAssignment}>
-                {creatingAssignment ? 'Creating…' : assignmentFile ? 'Create & upload' : 'Create assignment'}
-              </BtnPrimary>
-            </div>
-          </form>
-        </AssessmentCard>
-      )}
+          </div>
+        ) : null}
 
-      <AssessmentSectionTitle>Your assignments</AssessmentSectionTitle>
-
-      <AssessmentList>
-        {assignments.map((assignment) => {
-          const submission = assignment.mySubmission || null;
-          const status = getAssignmentStudentUiState(assignment);
-          const submissionCount = isLecturer && openSubmissionsAssignmentId === assignment.id
-            ? (submissionsByAssignment[assignment.id] || []).length
-            : null;
-
-          return (
-            <li key={assignment.id}>
-              <AssessmentCard as="article">
-                <CardTitleRow
-                  title={assignment.title}
-                  aside={
-                    isLecturer && assignment.due_date ? (
-                      <StatusBadge variant="neutral">Due {new Date(assignment.due_date).toLocaleString()}</StatusBadge>
-                    ) : null
-                  }
+        {isLecturer && (
+          <AssessmentCard>
+            <AssessmentSectionTitle>Create assignment</AssessmentSectionTitle>
+            <form onSubmit={createAssignment} className={s.formGrid}>
+              <Field label="Title">
+                <TextInput value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Assignment title" required />
+              </Field>
+              <Field label="Instructions / description">
+                <TextArea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="What students should submit and how it will be evaluated" rows={4} />
+              </Field>
+              <Field label="Due date">
+                <TextInput type="datetime-local" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} />
+              </Field>
+              <div>
+                <input
+                  type="file"
+                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                  onChange={(e) => setAssignmentFile(e.target.files?.[0] || null)}
                 />
-                {assignment.description ? <AssessmentMeta>{assignment.description}</AssessmentMeta> : null}
-                {!isLecturer && assignment.due_date ? (
-                  <AssessmentMeta strong>Due {new Date(assignment.due_date).toLocaleString()}</AssessmentMeta>
-                ) : null}
+                <p className={s.inlineHint}>Optional: attach a brief, rubric, or template for students.</p>
+              </div>
+              <div>
+                <BtnPrimary type="submit" disabled={creatingAssignment}>
+                  {creatingAssignment ? 'Creating…' : assignmentFile ? 'Create & upload' : 'Create assignment'}
+                </BtnPrimary>
+              </div>
+            </form>
+          </AssessmentCard>
+        )}
 
-                {isLecturer && openSubmissionsAssignmentId === assignment.id && submissionCount != null ? (
-                  <StatsRow>
-                    <Stat label="Submissions in view" value={String(submissionCount)} />
-                  </StatsRow>
-                ) : null}
+        <AssessmentSectionTitle>{isLecturer ? 'Course assignments' : 'Your assignments'}</AssessmentSectionTitle>
 
-                {assignment.file_name ? (
-                  <>
-                    <AssessmentDivider />
-                    <div className={s.flexRow}>
-                      <AssessmentMeta strong>Materials: {assignment.file_name}</AssessmentMeta>
-                      <BtnPrimary
-                        type="button"
-                        onClick={() => downloadAssignmentFile(assignment.id, assignment.file_name)}
-                        disabled={downloadingAssignmentId === assignment.id}
-                      >
-                        {downloadingAssignmentId === assignment.id ? 'Downloading…' : 'Download brief'}
-                      </BtnPrimary>
-                    </div>
-                  </>
-                ) : null}
-
-                {isLecturer && (
-                  <>
-                    <AssessmentDivider />
-                    <AssessmentToolbar>
-                      <BtnSecondary type="button" onClick={() => toggleSubmissions(assignment.id)}>
-                        {openSubmissionsAssignmentId === assignment.id ? 'Hide submissions' : 'Open grading queue'}
-                      </BtnSecondary>
-                    </AssessmentToolbar>
-
-                    {openSubmissionsAssignmentId === assignment.id && (
-                      <div className={s.queue}>
-                        <p className={s.queueTitle}>Grading queue</p>
-                        {submissionsError ? <AssessmentAlert type="error">{submissionsError}</AssessmentAlert> : null}
-                        {loadingSubmissionsId === assignment.id ? (
-                          <AssessmentMeta>Loading submissions…</AssessmentMeta>
-                        ) : (submissionsByAssignment[assignment.id] || []).length === 0 ? (
-                          <AssessmentEmpty>No submissions yet for this assignment.</AssessmentEmpty>
-                        ) : (
-                          (submissionsByAssignment[assignment.id] || []).map((entry) => (
-                            <QueueItem key={entry.id}>
-                              <div className={s.queueItemHeader}>
-                                <div>
-                                  <AssessmentMeta strong>{entry.student?.full_name || entry.student?.email || 'Unknown student'}</AssessmentMeta>
-                                  <AssessmentMeta>
-                                    {entry.file_name || 'Submission file'}
-                                    {entry.submitted_at ? ` · Submitted ${new Date(entry.submitted_at).toLocaleString()}` : ''}
-                                  </AssessmentMeta>
-                                  <AssessmentMeta>
-                                    {entry.grading_status === 'published'
-                                      ? 'Status: released to student'
-                                      : entry.grading_status === 'graded'
-                                        ? 'Status: graded (draft — not released)'
-                                        : 'Status: submitted'}
-                                    {entry.grade != null ? ` · Grade: ${entry.grade}` : ''}
-                                  </AssessmentMeta>
-                                </div>
-                                <div className={s.actionRow}>
-                                  <BtnPrimary
-                                    type="button"
-                                    onClick={() => downloadSubmission(entry.id, entry.file_name)}
-                                    disabled={downloadingSubmissionId === entry.id}
-                                  >
-                                    {downloadingSubmissionId === entry.id ? 'Downloading…' : 'Download'}
-                                  </BtnPrimary>
-                                  <BtnSecondary
-                                    type="button"
-                                    onClick={() => (gradingSubmission?.id === entry.id ? setGradingSubmission(null) : openGrading(entry))}
-                                  >
-                                    {gradingSubmission?.id === entry.id ? 'Close panel' : 'Grade & feedback'}
-                                  </BtnSecondary>
-                                </div>
-                              </div>
-                              {gradingSubmission?.id === entry.id && (
-                                <GradingForm>
-                                  <Field label="Grade (numeric)">
-                                    <TextInput value={gradeField} onChange={(e) => setGradeField(e.target.value)} />
-                                  </Field>
-                                  <Field label="Feedback">
-                                    <TextArea value={feedbackField} onChange={(e) => setFeedbackField(e.target.value)} rows={4} />
-                                  </Field>
-                                  <label className={s.checkRow}>
-                                    <input type="checkbox" checked={publishField} onChange={(e) => setPublishField(e.target.checked)} />
-                                    Publish results to student (sends notification)
-                                  </label>
-                                  <div className={s.flexRow}>
-                                    <BtnPrimary type="button" disabled={gradingSaving} onClick={saveGrading}>
-                                      {gradingSaving ? 'Saving…' : 'Save grading'}
-                                    </BtnPrimary>
-                                    <BtnSecondary type="button" onClick={() => setGradingSubmission(null)}>Cancel</BtnSecondary>
-                                  </div>
-                                </GradingForm>
-                              )}
-                            </QueueItem>
-                          ))
-                        )}
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {!isLecturer && (
-                  <>
-                    <AssessmentDivider />
-                    <div className={s.flexRow}>
-                      <StatusBadge variant={status.badgeVariant}>{status.label}</StatusBadge>
-                    </div>
-
-                    {submission?.submitted_at && (
-                      <div className={s.studentPanel}>
-                        <AssessmentMeta strong>
-                          Submitted {new Date(submission.submitted_at).toLocaleString()}
-                        </AssessmentMeta>
-                        {submission.grade === null || submission.grade === undefined ? (
-                          <p className={s.feedbackItem} style={{ color: '#2563eb', fontWeight: 600 }}>Waiting for grading</p>
-                        ) : (
-                          <>
-                            <p className={s.feedbackItem} style={{ color: '#047857', fontWeight: 600 }}>Grade: {submission.grade}</p>
-                            {submission.feedback ? (
-                              <div className={s.feedbackBlock}>Feedback: {submission.feedback}</div>
-                            ) : null}
-                          </>
-                        )}
-                      </div>
-                    )}
-
-                    <div className={`${s.studentPanel} ${s.uploadRow}`}>
-                      <input
-                        type="file"
-                        accept=".pdf,.jpg,.png,.doc,.docx"
-                        onChange={(e) => setSubmitFile({ ...submitFile, [assignment.id]: e.target.files?.[0] || null })}
-                        disabled={!status.canUpload}
-                      />
-                      <BtnPrimary
-                        type="button"
-                        onClick={() => submitAssignment(assignment.id)}
-                        disabled={!status.canUpload || submittingId === assignment.id}
-                      >
-                        {submittingId === assignment.id ? 'Uploading…' : status.uploadLabel}
-                      </BtnPrimary>
-                      {status.canDelete && submission?.id ? (
-                        <BtnDanger type="button" onClick={() => deleteSubmission(assignment.id)} disabled={deletingId === assignment.id}>
-                          {deletingId === assignment.id ? 'Deleting…' : 'Delete submission'}
-                        </BtnDanger>
-                      ) : null}
-                    </div>
-                  </>
-                )}
-              </AssessmentCard>
+        <AssessmentList>
+          {assignments.map((assignment) => (
+            <li key={assignment.id}>
+              {isLecturer ? (
+                <LecturerAssignmentCard
+                  assignment={assignment}
+                  stats={computeAssignmentStats(submissionsByAssignment[assignment.id] || [])}
+                  submissions={submissionsByAssignment[assignment.id] || []}
+                  queueOpen={openSubmissionsAssignmentId === assignment.id}
+                  queueLoading={loadingSubmissionsId === assignment.id}
+                  queueError={openSubmissionsAssignmentId === assignment.id ? submissionsError : ''}
+                  downloadingSubmissionId={downloadingSubmissionId}
+                  activeSubmissionId={gradingSubmission?.id}
+                  onToggleQueue={() => toggleSubmissions(assignment.id)}
+                  onOpenGrading={openGrading}
+                  onDownloadSubmission={downloadSubmission}
+                  onDownloadBrief={downloadAssignmentFile}
+                  downloadingBrief={downloadingAssignmentId === assignment.id}
+                />
+              ) : (
+                <StudentAssignmentCard
+                  assignment={assignment}
+                  file={submitFile[assignment.id]}
+                  onFileChange={(f) => setSubmitFile((prev) => ({ ...prev, [assignment.id]: f }))}
+                  uploadProgress={uploadProgress[assignment.id]}
+                  submitting={submittingId === assignment.id}
+                  deleting={deletingId === assignment.id}
+                  onSubmit={() => submitAssignment(assignment.id)}
+                  onDelete={() => deleteSubmission(assignment.id)}
+                  onDownloadBrief={downloadAssignmentFile}
+                  downloadingBrief={downloadingAssignmentId === assignment.id}
+                  showConfirm={confirmId === assignment.id}
+                />
+              )}
             </li>
-          );
-        })}
-      </AssessmentList>
+          ))}
+        </AssessmentList>
 
-      {!loading && assignments.length === 0 ? (
-        <AssessmentEmpty>No assignments in this course yet.</AssessmentEmpty>
-      ) : null}
+        {!loading && assignments.length === 0 ? (
+          <AssignmentsEmptyState isLecturer={isLecturer} title="No assignments yet" />
+        ) : null}
+
+        {gradingSubmission && activeAssignment ? (
+          <GradingPanel
+            submission={gradingSubmission}
+            assignment={activeAssignment}
+            grade={gradeField}
+            feedback={feedbackField}
+            publish={publishField}
+            saving={gradingSaving}
+            error={submissionsError}
+            onGradeChange={setGradeField}
+            onFeedbackChange={setFeedbackField}
+            onPublishChange={setPublishField}
+            onSaveDraft={() => persistGrading(false)}
+            onPublish={() => persistGrading(true)}
+            onClose={() => setGradingSubmission(null)}
+            onDownload={downloadSubmission}
+          />
+        ) : null}
       </CoursePageFrame>
     </AssessmentShell>
   );

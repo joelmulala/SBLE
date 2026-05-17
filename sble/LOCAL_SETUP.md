@@ -76,6 +76,35 @@ TEMP_ADMIN_PASSWORD=admin123
 CLIENT_URL=http://localhost:3000
 ```
 
+### Email & password reset (Brevo)
+
+Password recovery sends real emails via [Brevo](https://www.brevo.com/) (free SMTP tier). Create a Brevo account, verify your sender domain or address, then generate an **SMTP key** under *SMTP & API → SMTP*.
+
+Add to `server/.env`:
+
+```env
+EMAIL_ENABLED=true
+SMTP_HOST=smtp-relay.brevo.com
+SMTP_PORT=587
+SMTP_USER=your-brevo-smtp-login@smtp-brevo.com
+SMTP_PASS=your-brevo-smtp-key
+MAIL_FROM_NAME=SBLE
+MAIL_FROM_ADDRESS=no-reply@your-verified-domain.com
+CLIENT_URL=http://localhost:3000
+```
+
+| Variable | Purpose |
+|---|---|
+| `SMTP_HOST` / `SMTP_PORT` | Brevo relay (`smtp-relay.brevo.com`, `587`) |
+| `SMTP_USER` / `SMTP_PASS` | Brevo SMTP credentials |
+| `MAIL_FROM_NAME` / `MAIL_FROM_ADDRESS` | Branded sender (must be verified in Brevo) |
+| `CLIENT_URL` | Base URL for reset links (`/reset-password?token=...`) |
+| `PASSWORD_RESET_EXPIRY_MINUTES` | Token lifetime (15–30, default `30`) |
+
+**Local testing without Brevo:** omit `SMTP_*` and set `EMAIL_MODE=dev` — Nodemailer uses Ethereal; check the API server log for an `Ethereal preview URL` after requesting a reset.
+
+**Flows:** `/forgot-password` → email link → `/reset-password?token=...` → sign in with the new password.
+
 Create `client/.env`:
 
 ```env
@@ -134,7 +163,8 @@ npm start
 | 401 on API calls | Log in again; token is stored as `sbleToken` in `localStorage` |
 | Live class has no video | Set `LIVEKIT_*` in `server/.env` and restart the API |
 | Redis errors | Unset `REDIS_HOST` for in-memory sessions |
-| Emails not sent | Leave `SMTP_HOST` blank — other features still work |
+| Password reset email not received | Verify Brevo sender, `SMTP_*`, and `CLIENT_URL`; check server logs |
+| Emails not sent (grades, login alerts) | Set `EMAIL_ENABLED=true` and SMTP vars, or use `EMAIL_MODE=dev` for Ethereal previews |
 
 ---
 
@@ -143,6 +173,6 @@ npm start
 | Service | If missing |
 |---|---|
 | Redis | In-memory sessions; lost on API restart |
-| SMTP | Email notifications skipped |
+| SMTP / Brevo | Password reset and notifications skipped |
 | MinIO | Files stored under `server/uploads/` |
 | `ENABLE_LEGACY_WEBRTC=true` | Enables old peer WebRTC signaling (not used by default; classroom is LiveKit) |

@@ -1,17 +1,16 @@
 import React, {
   forwardRef,
-  useCallback,
   useEffect,
   useImperativeHandle,
   useMemo,
   useReducer,
-  useRef,
-  useState
+  useRef
 } from 'react';
 import { RoomEvent } from 'livekit-client';
 import PresentationStage from './PresentationStage';
 import CameraPip from './CameraPip';
 import ActivePresentationOverlay from './ActivePresentationOverlay';
+import PresentationTeachingLabel from './PresentationTeachingLabel';
 import ParticipantDock from './ParticipantDock';
 import ClassroomStageLayout from './ClassroomStageLayout';
 import { resolvePrimarySpeakerIdentity } from '../../services/classroom/classroomParticipantUtils';
@@ -29,25 +28,23 @@ import styles from './ClassroomStage.module.css';
  * @param {{
  *   room: import('livekit-client').Room | null,
  *   sidebarOpen?: boolean,
+ *   presentationExpanded?: boolean,
  *   presenceByIdentity?: Record<string, { raisedHand?: boolean, hasQuestion?: boolean, participationAck?: string | null }>,
- *   onStageMetaChange?: (meta: { layoutMode: string, presentationFsActive: boolean }) => void
+ *   onStageMetaChange?: (meta: { layoutMode: string, presentationFsActive: boolean, discussionSpotlightId: string | null, discussionCount: number }) => void
  * }} props
  */
 const ClassroomStage = forwardRef(function ClassroomStage(
-  { room, sidebarOpen = false, presenceByIdentity = {}, onStageMetaChange },
+  {
+    room,
+    sidebarOpen = false,
+    presentationExpanded = false,
+    presenceByIdentity = {},
+    onStageMetaChange
+  },
   ref
 ) {
   const shellRef = useRef(null);
   const [, bumpLayout] = useReducer((n) => n + 1, 0);
-  const [fsActive, setFsActive] = useState(false);
-
-  useEffect(() => {
-    const onFs = () => {
-      setFsActive(document.fullscreenElement === shellRef.current);
-    };
-    document.addEventListener('fullscreenchange', onFs);
-    return () => document.removeEventListener('fullscreenchange', onFs);
-  }, []);
 
   useEffect(() => {
     if (!room) return undefined;
@@ -121,52 +118,47 @@ const ClassroomStage = forwardRef(function ClassroomStage(
     if (typeof onStageMetaChange !== 'function') return;
     onStageMetaChange({
       layoutMode: layout.mode,
-      presentationFsActive: fsActive,
+      presentationFsActive: presentationExpanded,
       discussionSpotlightId: layout.mode === 'discussion' ? spotlightId : null,
       discussionCount: layout.discussion.length
     });
-  }, [layout.mode, layout.discussion.length, fsActive, spotlightId, onStageMetaChange]);
+  }, [layout.mode, layout.discussion.length, presentationExpanded, spotlightId, onStageMetaChange]);
 
   const pipParticipant = useMemo(() => {
     if (!room || layout.mode === 'discussion') return null;
     return resolvePipCameraParticipant(room, layout.mode, layout.presenter);
   }, [room, layout.mode, layout.presenter, bumpLayout]);
 
-  const togglePresentationFullscreen = useCallback(() => {
-    const el = shellRef.current;
-    if (!el) return;
-    if (!document.fullscreenElement) {
-      el.requestFullscreen?.().catch(() => {});
-    } else {
-      document.exitFullscreen?.().catch(() => {});
-    }
-  }, []);
-
   useImperativeHandle(
     ref,
     () => ({
-      togglePresentationFullscreen,
       get presentationFsActive() {
-        return fsActive;
+        return presentationExpanded;
       },
       get layoutMode() {
         return layout.mode;
       }
     }),
-    [togglePresentationFullscreen, fsActive, layout.mode]
+    [presentationExpanded, layout.mode]
   );
 
   if (!room) {
     return <div className={styles.placeholder} aria-hidden />;
   }
 
+  const shellClass = [
+    styles.shell,
+    presentationExpanded && styles.shellExpanded
+  ].filter(Boolean).join(' ');
+
   if (layout.mode === 'discussion') {
     return (
       <div
-        className={styles.shell}
+        className={shellClass}
         ref={shellRef}
         data-mode="discussion"
         data-sidebar={sidebarOpen ? 'open' : 'closed'}
+        data-expanded={presentationExpanded ? 'true' : 'false'}
       >
         <ClassroomStageLayout
           room={room}
@@ -184,10 +176,11 @@ const ClassroomStage = forwardRef(function ClassroomStage(
 
   return (
     <div
-      className={styles.shell}
+      className={shellClass}
       ref={shellRef}
       data-mode={layout.mode}
       data-sidebar={sidebarOpen ? 'open' : 'closed'}
+      data-expanded={presentationExpanded ? 'true' : 'false'}
     >
       <div className={styles.presentationColumn}>
         <div className={styles.presentationCanvas}>
@@ -196,10 +189,11 @@ const ClassroomStage = forwardRef(function ClassroomStage(
             presenter={layout.presenter}
             activeSpeakerId={layout.primaryId}
           />
+          <PresentationTeachingLabel variant={layout.mode} />
           {pipParticipant ? <CameraPip room={room} participant={pipParticipant} /> : null}
           {showStudentOverlay ? <ActivePresentationOverlay variant="student_pending" /> : null}
         </div>
-        {layout.dock.length ? (
+        {!presentationExpanded && layout.dock.length ? (
           <ParticipantDock
             room={room}
             participants={layout.dock}

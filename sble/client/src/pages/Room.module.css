@@ -160,6 +160,14 @@
   color: var(--color-text);
 }
 
+.sessionTimerTop {
+  font-size: var(--fs-00);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  padding: 0.2rem 0.5rem;
+}
+
 .topBarMeta {
   display: flex;
   flex-wrap: wrap;
@@ -306,6 +314,39 @@
   position: relative;
   overflow: hidden;
   isolation: isolate;
+}
+
+.videoWellFullscreen,
+.videoShell:fullscreen .videoWell {
+  min-height: 100%;
+}
+
+.videoWellPresentationExpanded {
+  /* presentation expand is in-stage; keep overlays anchored */
+}
+
+.videoShell:fullscreen :global([class*='EmbeddedRoomPanels_stack']),
+.videoWell[data-fullscreen='true'] :global([class*='EmbeddedRoomPanels_stack']) {
+  z-index: 24;
+}
+
+.videoShell:fullscreen :global([class*='MediaControlDock_anchor']),
+.videoWell[data-fullscreen='true'] :global([class*='MediaControlDock_anchor']) {
+  z-index: 26;
+}
+
+.videoShell:fullscreen :global([class*='EmbeddedRoomPanel_panel']),
+.videoWell[data-fullscreen='true'] :global([class*='EmbeddedRoomPanel_panel']) {
+  max-height: min(48vh, 24rem);
+}
+
+@media (max-width: 640px) {
+  .videoShell:fullscreen :global([class*='EmbeddedRoomPanel_panel']),
+  .videoWell[data-fullscreen='true'] :global([class*='EmbeddedRoomPanel_panel']) {
+    width: min(20rem, calc(100% - 1rem));
+    right: 0.5rem;
+    max-height: min(42vh, 18rem);
+  }
 }
 
 .lobbyOverlay {

@@ -1,71 +1,26 @@
 const nodemailer = require('nodemailer');
 const logger = require('../../config/logger');
+const { getTransporter, getFromAddress, isEmailEnabled, getMailDiagnostics } = require('./mailTransport');
 
 const EMAIL_MODE = String(process.env.EMAIL_MODE || 'dev').toLowerCase();
-const EMAIL_ENABLED = String(process.env.EMAIL_ENABLED || 'false').toLowerCase() === 'true';
-const FROM = process.env.SMTP_FROM || 'SBLE <no-reply@sble.local>';
 
-let transporterPromise = null;
 let lastEmailDispatch = null;
-
-const createGmailTransporter = async () => {
-  const user = process.env.GMAIL_USER;
-  const pass = process.env.GMAIL_APP_PASSWORD;
-
-  if (!user || !pass) {
-    logger.warn('Email mode is demo/production but GMAIL_USER or GMAIL_APP_PASSWORD is missing');
-    return null;
-  }
-
-  return nodemailer.createTransport({
-    service: 'gmail',
-    auth: { user, pass }
-  });
-};
-
-const createDevTransporter = async () => {
-  const testAccount = await nodemailer.createTestAccount();
-  return nodemailer.createTransport({
-    host: 'smtp.ethereal.email',
-    port: 587,
-    secure: false,
-    auth: {
-      user: testAccount.user,
-      pass: testAccount.pass
-    }
-  });
-};
-
-const getTransporter = async () => {
-  if (!EMAIL_ENABLED) return null;
-
-  if (!transporterPromise) {
-    transporterPromise = (async () => {
-      if (EMAIL_MODE === 'demo' || EMAIL_MODE === 'production') {
-        return createGmailTransporter();
-      }
-      return createDevTransporter();
-    })();
-  }
-
-  return transporterPromise;
-};
 
 const sendEmail = async (to, subject, html) => {
   const startedAt = new Date().toISOString();
 
-  if (!EMAIL_ENABLED) {
+  if (!isEmailEnabled()) {
     logger.info(`[EMAIL DISABLED] Skipping "${subject}"`);
     lastEmailDispatch = {
       to,
       subject,
       mode: EMAIL_MODE,
-      enabled: EMAIL_ENABLED,
+      enabled: false,
       attemptedAt: startedAt,
       status: 'skipped',
-      reason: 'EMAIL_ENABLED=false'
+      reason: 'email-not-enabled'
     };
-    return { skipped: true, reason: 'EMAIL_ENABLED=false' };
+    return { skipped: true, reason: 'email-not-enabled' };
   }
 
   const transporter = await getTransporter();
@@ -74,7 +29,7 @@ const sendEmail = async (to, subject, html) => {
       to,
       subject,
       mode: EMAIL_MODE,
-      enabled: EMAIL_ENABLED,
+      enabled: true,
       attemptedAt: startedAt,
       status: 'skipped',
       reason: 'missing-email-transporter'
@@ -83,9 +38,16 @@ const sendEmail = async (to, subject, html) => {
   }
 
   try {
-    const info = await transporter.sendMail({ from: FROM, to, subject, html });
+    const info = await transporter.sendMail({
+      from: getFromAddress(),
+      to,
+      subject,
+      html
+    });
     logger.info(`Email sent to ${to}: ${subject}`);
-    const previewUrl = EMAIL_MODE === 'dev' ? nodemailer.getTestMessageUrl(info) : null;
+    const previewUrl = EMAIL_MODE === 'dev' && !process.env.SMTP_HOST
+      ? nodemailer.getTestMessageUrl(info)
+      : null;
 
     if (previewUrl) logger.info(`Ethereal preview URL: ${previewUrl}`);
 
@@ -93,21 +55,21 @@ const sendEmail = async (to, subject, html) => {
       to,
       subject,
       mode: EMAIL_MODE,
-      enabled: EMAIL_ENABLED,
+      enabled: true,
       attemptedAt: startedAt,
       status: 'sent',
       messageId: info.messageId,
       previewUrl
     };
 
-    return { sent: true, messageId: info.messageId };
+    return { sent: true, messageId: info.messageId, previewUrl };
   } catch (err) {
     logger.error(`Email send failed: ${err?.message || 'unknown error'}`);
     lastEmailDispatch = {
       to,
       subject,
       mode: EMAIL_MODE,
-      enabled: EMAIL_ENABLED,
+      enabled: true,
       attemptedAt: startedAt,
       status: 'failed',
       error: err.message
@@ -117,10 +79,7 @@ const sendEmail = async (to, subject, html) => {
 };
 
 const getEmailDiagnostics = () => ({
-  mode: EMAIL_MODE,
-  enabled: EMAIL_ENABLED,
-  from: FROM,
-  provider: EMAIL_MODE === 'dev' ? 'ethereal' : 'gmail',
+  ...getMailDiagnostics(),
   lastEmailDispatch
 });
 
@@ -171,7 +130,6 @@ const sendExamReleased = (user, exam = {}) => {
   );
 };
 
-// Backward-compatible wrappers to avoid breaking existing route code.
 const sendGradeNotification = (email, assignmentTitle, grade, feedback) =>
   sendAssignmentGraded({ email }, { title: assignmentTitle, grade, feedback });
 

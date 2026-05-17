@@ -1,14 +1,25 @@
 import React, { useState } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { useKeycloak } from '../auth/AuthProvider';
+import {
+  AuthLayout,
+  AuthField,
+  AuthButton,
+  AuthAlert,
+  AuthActions,
+  AuthFooterLink,
+  AuthForm,
+  AuthLinkDivider
+} from '../components/auth/AuthShell';
+import { IconMail, IconLock } from '../components/auth/AuthIcons';
+import styles from '../components/auth/AuthLayout.module.css';
 
 export default function Login() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { keycloak, initialized, login } = useKeycloak();
-  const [form, setForm] = useState({
-    email: 'admin1@sble.local',
-    password: 'admin123'
-  });
+  const registered = location.state?.registered;
+  const [form, setForm] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -22,141 +33,75 @@ export default function Login() {
     setError('');
 
     try {
-      await login(form.email, form.password);
+      await login(form.email.trim(), form.password);
       navigate('/', { replace: true });
     } catch (err) {
-      setError(err.response?.data?.error || 'Login failed. Please try again.');
+      setError(err.userMessage || err.response?.data?.error || 'Invalid email or password. Please try again.');
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        display: 'grid',
-        placeItems: 'center',
-        background: 'linear-gradient(135deg, #f4f7fb 0%, #eef3ff 100%)',
-        padding: 20
-      }}
+    <AuthLayout
+      title="Welcome back"
+      subtitle="Sign in to access your courses, live classes, and academic resources."
     >
-      <div
-        style={{
-          width: '100%',
-          maxWidth: 460,
-          background: '#fff',
-          borderRadius: 16,
-          boxShadow: '0 16px 40px rgba(15, 23, 42, 0.10)',
-          padding: 30,
-          border: '1px solid #e7ecf5'
-        }}
-      >
-        <div style={{ marginBottom: 22 }}>
-          <p style={{ margin: 0, color: '#4f8ef7', fontSize: '0.82rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-            Secure LMS
-          </p>
-          <h1 style={{ margin: '8px 0 10px', fontSize: '1.7rem', lineHeight: 1.25, color: '#1f2937' }}>
-            Secure Blended Learning Environment (SBLE)
-          </h1>
-          <p style={{ color: '#667085', margin: 0 }}>
-            Login to access your courses and academic resources
-          </p>
-        </div>
+      <AuthForm onSubmit={handleSubmit} loading={submitting} aria-label="Sign in">
+        {registered ? (
+          <AuthAlert type="success" title="Account created">
+            Your registration is complete. Sign in with your email and password.
+          </AuthAlert>
+        ) : null}
+        <AuthField
+          id="login-email"
+          label="Email address"
+          type="email"
+          icon={IconMail}
+          autoComplete="email"
+          placeholder="you@university.edu"
+          value={form.email}
+          onChange={(e) => setForm({ ...form, email: e.target.value })}
+          required
+          disabled={submitting}
+        />
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }} aria-label="Sign in">
-          <label htmlFor="login-email" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden' }}>
-            Email address
-          </label>
-          <input
-            id="login-email"
-            type="email"
-            autoComplete="email"
-            value={form.email}
-            onChange={(e) => setForm({ ...form, email: e.target.value })}
-            placeholder="Email address"
-            required
-            style={{
-              padding: '11px 12px',
-              borderRadius: 10,
-              border: '1px solid #d7deea',
-              outline: 'none',
-              fontSize: '0.95rem'
-            }}
-          />
-          <label htmlFor="login-password" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden' }}>
-            Password
-          </label>
-          <input
-            id="login-password"
-            type="password"
-            autoComplete="current-password"
-            value={form.password}
-            onChange={(e) => setForm({ ...form, password: e.target.value })}
-            placeholder="Password"
-            required
-            style={{
-              padding: '11px 12px',
-              borderRadius: 10,
-              border: '1px solid #d7deea',
-              outline: 'none',
-              fontSize: '0.95rem'
-            }}
-          />
+        <AuthField
+          id="login-password"
+          label="Password"
+          type="password"
+          icon={IconLock}
+          autoComplete="current-password"
+          placeholder="Enter your password"
+          value={form.password}
+          onChange={(e) => setForm({ ...form, password: e.target.value })}
+          required
+          disabled={submitting}
+        />
 
-          {error && (
-            <div
-              role="alert"
-              style={{
-                color: '#b42318',
-                background: '#fef3f2',
-                border: '1px solid #fecdca',
-                borderRadius: 10,
-                padding: '10px 12px',
-                fontSize: '0.92rem'
-              }}
-            >
-              {error}
-            </div>
-          )}
+        {error ? <AuthAlert type="error">{error}</AuthAlert> : null}
 
-          <button
-            type="submit"
-            disabled={submitting}
-            style={{
-              background: '#4f8ef7',
-              color: '#fff',
-              border: 'none',
-              borderRadius: 10,
-              padding: '11px 14px',
-              cursor: 'pointer',
-              fontWeight: 600,
-              fontSize: '0.96rem'
-            }}
-          >
-            {submitting ? 'Signing in...' : 'Sign in'}
-          </button>
-        </form>
+        <AuthButton loading={submitting} disabled={submitting}>
+          {submitting ? 'Signing in…' : 'Sign in'}
+        </AuthButton>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
-          <Link to="/register" style={{ color: '#4f8ef7', fontWeight: 600, textDecoration: 'none' }}>
-            Create Account
-          </Link>
-          <a
-            href="mailto:admin@sble.local?subject=SBLE%20Password%20Reset%20Request"
-            style={{ color: '#667085', textDecoration: 'none', fontSize: '0.9rem' }}
-          >
+        <AuthActions>
+          <AuthFooterLink to="/forgot-password" variant="secondary">
             Forgot password?
-          </a>
-        </div>
+          </AuthFooterLink>
+          <AuthLinkDivider />
+          <AuthFooterLink to="/register">
+            Create account
+          </AuthFooterLink>
+        </AuthActions>
+      </AuthForm>
 
-        <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid #edf1f7', fontSize: '0.9rem', color: '#555' }}>
-          <p style={{ margin: 0, fontWeight: 600 }}>Students and Lecturers can create accounts</p>
-          <p style={{ margin: '8px 0 0', color: '#666' }}>
-            Admin accounts are managed by the system administrator
-          </p>
-        </div>
-      </div>
-    </div>
+      <div className={styles.divider} role="presentation" />
+      <p className={styles.note}>
+        <strong>Students and lecturers</strong>
+        {' '}
+        can register for an account. Admin access is managed by your institution.
+      </p>
+    </AuthLayout>
   );
 }

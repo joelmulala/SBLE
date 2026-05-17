@@ -25,6 +25,11 @@ CREATE TABLE users (
   mode VARCHAR(20),
   institution VARCHAR(255),
   staff_email VARCHAR(255) UNIQUE,
+  password_hash VARCHAR(255),
+  password_reset_token_hash VARCHAR(64),
+  password_reset_expires_at TIMESTAMP,
+  token_version INTEGER NOT NULL DEFAULT 0,
+  password_changed_at TIMESTAMP,
   is_active BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

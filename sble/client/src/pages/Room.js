@@ -8,7 +8,18 @@ import ClassroomMediaStage from '../components/classroom/ClassroomMediaStage';
 import MediaControlDock from '../components/classroom/MediaControlDock';
 import FloatingSelfView from '../components/classroom/FloatingSelfView';
 import VideoStageChrome from '../components/classroom/VideoStageChrome';
-import LiveStageBadge from '../components/classroom/LiveStageBadge';
+import StageIdentityOverlay from '../components/classroom/StageIdentityOverlay';
+import ClassroomEmptyIllustration from '../components/classroom/ClassroomEmptyIllustration';
+import FloatingReactionBurst from '../components/classroom/FloatingReactionBurst';
+import TeachingSessionBanner from '../components/classroom/TeachingSessionBanner';
+import RaisedHandsCue from '../components/classroom/RaisedHandsCue';
+import ClassroomTransitionBanner from '../components/classroom/ClassroomTransitionBanner';
+import {
+  getFullscreenElement,
+  requestElementFullscreen,
+  exitDocumentFullscreen,
+  subscribeFullscreenChange
+} from '../utils/fullscreen';
 import ParticipantRoster from '../components/classroom/ParticipantRoster';
 import RaiseHandButton from '../components/classroom/RaiseHandButton';
 import QuestionSignalButton from '../components/classroom/QuestionSignalButton';
@@ -97,6 +108,11 @@ export default function Room() {
     discussionSpotlightId: null,
     discussionCount: 0
   });
+  const [presentationExpanded, setPresentationExpanded] = useState(false);
+  const [classroomFullscreen, setClassroomFullscreen] = useState(false);
+  const [reactionBurst, setReactionBurst] = useState({ kind: null, key: 0 });
+  const [stageTransition, setStageTransition] = useState(null);
+  const prevLayoutModeRef = useRef('discussion');
   const [moderationNotice, setModerationNotice] = useState(null);
   const moderationNoticeTimerRef = useRef(null);
   const keycloakSubRef = useRef('');
@@ -287,6 +303,12 @@ export default function Room() {
           break;
         case 'session_ready':
           setIsLoading(false);
+          break;
+        case 'reconnecting':
+          setReconnecting(true);
+          break;
+        case 'reconnected':
+          setReconnecting(false);
           break;
         case 'device_warning':
           if (evt.message) {
@@ -597,14 +619,53 @@ export default function Room() {
     exitLiveClass('You left the class', { closeOnServer: false });
   };
 
-  const toggleFullscreen = useCallback(() => {
-    const el = videoShellRef.current || classroomRootRef.current;
-    if (!el) return;
-    if (!document.fullscreenElement) {
-      el.requestFullscreen?.().catch(() => {});
-    } else {
-      document.exitFullscreen?.().catch(() => {});
+  useEffect(() => {
+    return subscribeFullscreenChange(() => {
+      const el = videoShellRef.current;
+      const active = Boolean(el && getFullscreenElement() === el);
+      setClassroomFullscreen(active);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (stageMeta.layoutMode === 'discussion' && presentationExpanded) {
+      setPresentationExpanded(false);
     }
+  }, [stageMeta.layoutMode, presentationExpanded]);
+
+  useEffect(() => {
+    if (!mediaSessionActive) {
+      prevLayoutModeRef.current = 'discussion';
+      return undefined;
+    }
+    const prev = prevLayoutModeRef.current;
+    const next = stageMeta.layoutMode;
+    if (prev !== next && next !== 'discussion') {
+      setStageTransition('presentation');
+      const t = setTimeout(() => setStageTransition(null), 850);
+      prevLayoutModeRef.current = next;
+      return () => clearTimeout(t);
+    }
+    prevLayoutModeRef.current = next;
+    return undefined;
+  }, [stageMeta.layoutMode, mediaSessionActive]);
+
+  const toggleFullscreen = useCallback(() => {
+    const el = videoShellRef.current;
+    if (!el) return;
+    if (getFullscreenElement() === el) {
+      exitDocumentFullscreen().catch(() => {});
+    } else {
+      requestElementFullscreen(el).catch(() => {});
+    }
+  }, []);
+
+  const togglePresentationExpanded = useCallback(() => {
+    setPresentationExpanded((o) => !o);
+  }, []);
+
+  const pulseReactionBurst = useCallback((kind) => {
+    setReactionBurst((prev) => ({ kind, key: prev.key + 1 }));
   }, []);
 
   const courseTitle = roomDetails?.course?.title || '';
@@ -614,6 +675,11 @@ export default function Room() {
   const raisedParticipants = useMemo(
     () => participants.filter((p) => p.raisedHand),
     [participants]
+  );
+
+  const raisedHandNames = useMemo(
+    () => raisedParticipants.map((p) => p.name || 'Participant'),
+    [raisedParticipants]
   );
 
   const questionParticipants = useMemo(
@@ -626,13 +692,33 @@ export default function Room() {
     [participants]
   );
 
-  const stageBadgeName = useMemo(() => {
-    const raw = String(localParticipantState?.name || user.name || 'You').trim() || 'You';
-    if (/\(you\)\s*$/i.test(raw)) return raw;
-    return `${raw} (You)`;
-  }, [localParticipantState?.name, user.name]);
+  const stageFocusParticipant = useMemo(() => {
+    if (!mediaSessionActive || !participants.length) return null;
+    if (stageMeta.layoutMode !== 'discussion') {
+      return participants.find((p) => p.screenSharing) || null;
+    }
+    const count = stageMeta.discussionCount || participants.length;
+    if (count <= 1) {
+      return participants.find((p) => p.isLocal) || participants[0] || null;
+    }
+    if (stageMeta.discussionSpotlightId) {
+      return participants.find((p) => String(p.id) === String(stageMeta.discussionSpotlightId)) || null;
+    }
+    return null;
+  }, [mediaSessionActive, participants, stageMeta]);
 
-  const stageRoleLabel = user.role === 'lecturer' ? 'Instructor' : 'Student';
+  const stageIdentity = useMemo(() => {
+    if (!stageFocusParticipant) return null;
+    const raw = String(stageFocusParticipant.name || 'Participant').trim() || 'Participant';
+    const isYou = Boolean(stageFocusParticipant.isLocal);
+    const displayName = isYou && !/\(you\)\s*$/i.test(raw) ? `${raw} (You)` : raw;
+    const role = stageFocusParticipant.classroomRole === 'lecturer'
+      || stageFocusParticipant.classroomRole === 'admin'
+      || stageFocusParticipant.isModerator
+      ? 'Instructor'
+      : 'Student';
+    return { displayName, roleLabel: role, isYou };
+  }, [stageFocusParticipant]);
 
   const presenceByIdentity = useMemo(() => {
     const o = {};
@@ -669,6 +755,7 @@ export default function Room() {
           />
         ) : (
           <div className={styles.endedCard}>
+            <ClassroomEmptyIllustration />
             <p className={styles.endedTitle}>{endMessage}</p>
             <p className={styles.endedLead}>Returning to rooms…</p>
           </div>
@@ -717,6 +804,9 @@ export default function Room() {
               <>
                 <span className={styles.livePill} data-state="live">
                   Live
+                </span>
+                <span className={styles.sessionTimerTop} aria-label="Session time">
+                  {elapsedDisplay}
                 </span>
                 <button
                   type="button"
@@ -771,6 +861,7 @@ export default function Room() {
             <div className={styles.videoShell} ref={videoShellRef}>
               {(showLecturerLobby || showStudentLobby || showStudentJoining || showStudentJoinGate) && (
                 <div className={styles.lobbyOverlay}>
+                  <ClassroomEmptyIllustration />
                   {showLecturerLobby && (
                     <>
                       <p className={styles.lobbyTitle}>Start class</p>
@@ -832,33 +923,64 @@ export default function Room() {
               ) : null}
 
               {isLoading && !showStudentJoining && (lecturerStarted || (user.role === 'student' && studentJoinedIntent)) ? (
-                <div className={styles.loadingStrip}>Connecting…</div>
+                <ClassroomTransitionBanner variant="connecting" />
               ) : null}
 
               <div
                 ref={mediaContainerRef}
                 id={USE_LIVEKIT ? 'classroom-media' : 'jitsi-container'}
-                className={styles.videoWell}
+                className={[
+                  styles.videoWell,
+                  classroomFullscreen && styles.videoWellFullscreen,
+                  presentationExpanded && styles.videoWellPresentationExpanded
+                ].filter(Boolean).join(' ')}
+                data-fullscreen={classroomFullscreen ? 'true' : 'false'}
               >
                 {USE_LIVEKIT ? (
                   <>
                     <ClassroomMediaStage
                       ref={liveStageRef}
                       room={liveKitRoom}
-                      sidebarOpen={chatPanelOpen || peoplePanelOpen}
+                      sidebarOpen={chatPanelOpen || peoplePanelOpen || notesPanelOpen}
+                      presentationExpanded={presentationExpanded}
                       presenceByIdentity={presenceByIdentity}
                       onStageMetaChange={setStageMeta}
                     />
                     {mediaSessionActive ? (
                       <>
-                        <LiveStageBadge displayName={stageBadgeName} roleLabel={stageRoleLabel} />
-                        {reconnecting ? (
-                          <div className={styles.stageReconnect} role="status">Reconnecting…</div>
+                        <TeachingSessionBanner
+                          layoutMode={stageMeta.layoutMode}
+                          joinedCount={participants.length}
+                          handsRaised={raisedParticipants.length}
+                          elapsed={elapsedDisplay}
+                          showHands={user.role === 'lecturer'}
+                          reconnecting={reconnecting}
+                        />
+                        {user.role === 'lecturer' && raisedParticipants.length > 0 ? (
+                          <RaisedHandsCue
+                            count={raisedParticipants.length}
+                            names={raisedHandNames}
+                            onOpenPeople={() => setPeoplePanelOpen(true)}
+                          />
                         ) : null}
+                        {stageIdentity ? (
+                          <StageIdentityOverlay
+                            displayName={stageIdentity.displayName}
+                            roleLabel={stageIdentity.roleLabel}
+                            isYou={stageIdentity.isYou}
+                          />
+                        ) : null}
+                        {reconnecting ? (
+                          <ClassroomTransitionBanner variant="reconnecting" />
+                        ) : null}
+                        {stageTransition === 'presentation' ? (
+                          <ClassroomTransitionBanner variant="presentation" />
+                        ) : null}
+                        <FloatingReactionBurst kind={reactionBurst.kind} burstKey={reactionBurst.key} />
                         <VideoStageChrome
                           showPresentationExpand={stageMeta.layoutMode !== 'discussion'}
-                          presentationFsActive={stageMeta.presentationFsActive}
-                          onPresentationFullscreen={() => liveStageRef.current?.togglePresentationFullscreen?.()}
+                          presentationFsActive={presentationExpanded}
+                          onPresentationFullscreen={togglePresentationExpanded}
                         />
                         <EmbeddedRoomPanels
                           chatOpen={chatPanelOpen}
@@ -895,20 +1017,29 @@ export default function Room() {
                           camOn={Boolean(localParticipantState?.cameraOn)}
                           screenSharing={Boolean(localParticipantState?.screenSharing)}
                           participationLocked={classroomSession.participationLocked}
-                          sidebarOpen={chatPanelOpen || peoplePanelOpen}
-                          sidebarTab={chatPanelOpen ? 'chat' : 'participants'}
+                          sidebarOpen={chatPanelOpen || peoplePanelOpen || notesPanelOpen}
+                          sidebarTab={chatPanelOpen ? 'chat' : peoplePanelOpen ? 'participants' : 'notes'}
                           notesOpen={notesPanelOpen}
-                          onOpenChat={() => setChatPanelOpen(true)}
+                          onToggleChat={() => setChatPanelOpen((o) => !o)}
                           onTogglePeople={() => setPeoplePanelOpen((o) => !o)}
-                          onOpenNotes={() => setNotesPanelOpen((o) => !o)}
+                          onToggleNotes={() => setNotesPanelOpen((o) => !o)}
                           onToggleMic={() => mediaAdapterRef.current?.toggleMic()}
                           onToggleCam={() => mediaAdapterRef.current?.toggleCamera()}
                           onToggleShare={() => mediaAdapterRef.current?.toggleScreenShare()}
-                          onToggleRaiseHand={() => mediaAdapterRef.current?.toggleRaiseHand()}
+                          onToggleRaiseHand={() => {
+                            mediaAdapterRef.current?.toggleRaiseHand();
+                            pulseReactionBurst('hand');
+                          }}
                           raisedHand={Boolean(localParticipantState?.raisedHand)}
                           participationAck={localParticipantState?.participationAck || null}
-                          onToggleUnderstood={() => mediaAdapterRef.current?.toggleParticipationAck('understood')}
-                          onToggleAgree={() => mediaAdapterRef.current?.toggleParticipationAck('agree')}
+                          onToggleUnderstood={() => {
+                            mediaAdapterRef.current?.toggleParticipationAck('understood');
+                            pulseReactionBurst('understood');
+                          }}
+                          onToggleAgree={() => {
+                            mediaAdapterRef.current?.toggleParticipationAck('agree');
+                            pulseReactionBurst('agree');
+                          }}
                           onEndOrLeave={user.role === 'lecturer' ? handleEndClass : handleLeaveClass}
                           isLecturer={user.role === 'lecturer'}
                         />

@@ -2,6 +2,7 @@
   position: absolute;
   right: 1rem;
   z-index: 22;
+  pointer-events: auto;
   width: min(22rem, calc(100% - 2rem));
   max-height: min(42vh, 22rem);
   display: flex;

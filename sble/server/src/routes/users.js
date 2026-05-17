@@ -3,6 +3,8 @@ const { v4: uuidv4 } = require('uuid');
 const keycloak = require('../config/keycloak');
 const { attachUser, requireRole } = require('../middleware/auth');
 const { User } = require('../models');
+const { hashPassword } = require('../utils/password');
+const { getDefaultPasswordForRole } = require('../utils/defaultPasswords');
 
 const guard = [keycloak.protect(), attachUser, requireRole('admin')];
 const VALID_ROLES = ['student', 'lecturer', 'admin'];
@@ -102,11 +104,21 @@ const buildPayload = (body, existingUser = null) => {
   };
 };
 
-const getDefaultPasswordForRole = (role) => {
-  if (role === 'lecturer') return process.env.TEMP_LECTURER_PASSWORD || null;
-  if (role === 'student') return process.env.TEMP_STUDENT_PASSWORD || null;
-  if (role === 'admin') return process.env.TEMP_ADMIN_PASSWORD || null;
-  return null;
+const applyDefaultPasswordHash = async (user, role, { bumpTokenVersion = false } = {}) => {
+  const defaultPassword = getDefaultPasswordForRole(role);
+  if (!defaultPassword) return null;
+
+  const passwordHash = await hashPassword(defaultPassword);
+  const updates = {
+    password_hash: passwordHash,
+    password_changed_at: new Date()
+  };
+  if (bumpTokenVersion) {
+    updates.token_version = Number(user.token_version || 0) + 1;
+  }
+  await user.update(updates);
+
+  return defaultPassword;
 };
 
 router.get('/', ...guard, async (req, res) => {
@@ -153,9 +165,14 @@ router.post('/', ...guard, async (req, res) => {
       ...payload
     });
 
+    let defaultPassword = null;
+    if (payload.role === 'lecturer' || payload.role === 'student') {
+      defaultPassword = await applyDefaultPasswordHash(user, payload.role);
+    }
+
     res.status(201).json({
       user,
-      default_password: payload.role === 'lecturer' ? getDefaultPasswordForRole('lecturer') : null
+      default_password: defaultPassword
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -239,12 +256,14 @@ router.post('/:id/reset-password', ...guard, async (req, res) => {
       return res.status(500).json({ error: 'TEMP_LECTURER_PASSWORD is not configured' });
     }
 
+    await applyDefaultPasswordHash(user, 'lecturer', { bumpTokenVersion: true });
+
     res.json({
       user_id: user.id,
       email: user.email,
       role: user.role,
       default_password: defaultPassword,
-      message: 'Lecturer default password is ready to share securely'
+      message: 'Lecturer password reset to the configured default'
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

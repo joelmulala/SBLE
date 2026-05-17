@@ -2,7 +2,7 @@ import React from 'react';
 import EmbeddedRoomPanel from './EmbeddedRoomPanel';
 import ClassroomChatPanel from './ClassroomChatPanel';
 import ParticipantRoster from './ParticipantRoster';
-import SessionMetricsPanel from './SessionMetricsPanel';
+import TeachingAwarenessStrip from './TeachingAwarenessStrip';
 import LecturerControlsPanel from './LecturerControlsPanel';
 import LiveAttendanceBadge from './LiveAttendanceBadge';
 import styles from './EmbeddedRoomPanels.module.css';
@@ -61,9 +61,9 @@ export default function EmbeddedRoomPanels({
             {showLecturerTools ? (
               <>
                 <div className={styles.peopleMeta}>
-                  <LiveAttendanceBadge active />
+                  <LiveAttendanceBadge active joinedCount={participants.length} />
                 </div>
-                <SessionMetricsPanel participants={participants} />
+                <TeachingAwarenessStrip participants={participants} />
                 <LecturerControlsPanel
                   requests={classroomSession.requests}
                   participationLocked={classroomSession.participationLocked}

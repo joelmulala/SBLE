@@ -1,0 +1,477 @@
+/* Academic productivity layer — shared surfaces */
+
+.panel {
+  background-color: var(--color-surface);
+  background-image: var(--surface-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
+  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.panelHeader {
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.panelTitle {
+  margin: 0;
+  font-size: var(--fs-1);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--color-text);
+}
+
+.panelLead {
+  margin: var(--space-1) 0 0;
+  font-size: var(--fs-00);
+  line-height: var(--lh-loose);
+  color: var(--color-text-muted);
+}
+
+.panelBody {
+  padding: var(--space-4) var(--space-5) var(--space-5);
+}
+
+.panelFooter {
+  margin: 0;
+  padding: var(--space-3) var(--space-5) var(--space-4);
+  border-top: 1px solid var(--color-border);
+  font-size: var(--fs-0);
+}
+
+.panelFooter a {
+  color: var(--color-brand);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.panelFooter a:hover {
+  text-decoration: underline;
+}
+
+/* Notification center */
+.notifCenter {
+  position: absolute;
+  right: 0;
+  top: calc(100% + var(--space-2));
+  width: min(22rem, calc(100vw - 2rem));
+  max-height: min(28rem, 70vh);
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface);
+  background-image: var(--surface-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-raised);
+  z-index: 120;
+  animation: prodSlideIn 0.18s ease;
+}
+
+@keyframes prodSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.notifCenterHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.notifCenterTitle {
+  margin: 0;
+  font-size: var(--fs-1);
+  font-weight: 600;
+}
+
+.notifCenterMeta {
+  font-size: var(--fs-00);
+  color: var(--color-text-faint);
+  font-weight: 600;
+}
+
+.notifClearBtn {
+  border: none;
+  background: transparent;
+  color: var(--color-brand);
+  font-size: var(--fs-00);
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-sm);
+}
+
+.notifClearBtn:hover {
+  background: var(--color-brand-soft);
+}
+
+.notifScroll {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  flex: 1;
+  min-height: 0;
+}
+
+.notifCategory {
+  padding: var(--space-2) 0;
+}
+
+.notifCategoryLabel {
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--fs-00);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+}
+
+.notifItem {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  transition: background 0.12s ease;
+}
+
+.notifItem:hover {
+  background: color-mix(in srgb, var(--color-brand-soft) 40%, transparent);
+}
+
+.notifItemUnread {
+  background: color-mix(in srgb, var(--color-brand-soft) 25%, var(--color-surface));
+}
+
+.notifIcon {
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--radius-sm);
+  display: grid;
+  place-items: center;
+  font-size: var(--fs-00);
+  font-weight: 700;
+}
+
+.notifIconLive {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.notifIconAcademic {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.notifIconComm {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.notifIconOther {
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+}
+
+.notifBody {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.notifItemTitle {
+  display: block;
+  font-size: var(--fs-0);
+  font-weight: 600;
+  color: var(--color-text);
+  line-height: var(--lh-tight);
+}
+
+.notifItemMessage {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: var(--fs-00);
+  color: var(--color-text-muted);
+  line-height: var(--lh-loose);
+}
+
+.notifDismiss {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-faint);
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0.15rem;
+  border-radius: var(--radius-sm);
+}
+
+.notifDismiss:hover {
+  color: var(--color-text);
+  background: var(--color-surface-muted);
+}
+
+.notifEmpty {
+  padding: var(--space-8) var(--space-4);
+  text-align: center;
+  font-size: var(--fs-0);
+  color: var(--color-text-faint);
+}
+
+/* Tasks */
+.taskList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.taskItem {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface-muted) 50%, var(--color-surface));
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.taskItemLink {
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.taskItemLink:hover {
+  border-color: color-mix(in srgb, var(--color-brand) 22%, var(--color-border));
+  background: var(--color-brand-soft);
+}
+
+.taskItemUrgent {
+  border-left: 3px solid var(--color-danger);
+}
+
+.taskBadge {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.2rem 0.45rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+}
+
+.taskBadgeAssignment { background: #fff7ed; color: #c2410c; }
+.taskBadgeQuiz { background: #f0fdf4; color: #15803d; }
+.taskBadgeExam { background: #fef2f2; color: #b91c1c; }
+.taskBadgeLive { background: #e0f2fe; color: #0369a1; }
+.taskBadgeGrading { background: #eef2ff; color: #4338ca; }
+
+.taskContent {
+  flex: 1;
+  min-width: 0;
+}
+
+.taskTitle {
+  display: block;
+  font-size: var(--fs-0);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.taskMeta {
+  display: block;
+  margin-top: 0.1rem;
+  font-size: var(--fs-00);
+  color: var(--color-text-muted);
+}
+
+.taskWhen {
+  flex-shrink: 0;
+  font-size: var(--fs-00);
+  color: var(--color-text-faint);
+  white-space: nowrap;
+}
+
+/* Quick actions */
+.actionGrid {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.actionCard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface-muted) 55%, var(--color-surface));
+  text-decoration: none;
+  color: var(--color-text);
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.actionCard:hover {
+  border-color: color-mix(in srgb, var(--color-brand) 28%, var(--color-border));
+  background: var(--color-brand-soft);
+  box-shadow: var(--shadow-soft);
+}
+
+.actionCardPrimary {
+  border-color: color-mix(in srgb, var(--color-brand) 35%, var(--color-border));
+  background: color-mix(in srgb, var(--color-brand-soft) 70%, var(--color-surface));
+}
+
+.actionCardHighlight {
+  border-color: color-mix(in srgb, var(--color-brand) 45%, var(--color-border));
+}
+
+.actionLabel {
+  font-size: var(--fs-0);
+  font-weight: 600;
+}
+
+.actionDesc {
+  font-size: var(--fs-00);
+  color: var(--color-text-muted);
+}
+
+/* Calendar mini */
+.calSection {
+  margin-bottom: var(--space-4);
+}
+
+.calSection:last-child {
+  margin-bottom: 0;
+}
+
+.calSectionLabel {
+  margin: 0 0 var(--space-2);
+  font-size: var(--fs-00);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-faint);
+}
+
+.calMiniList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.calMiniItem {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-2) var(--space-3);
+  align-items: start;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-00);
+}
+
+.calMiniItemLink {
+  text-decoration: none;
+  color: inherit;
+  border: 1px solid transparent;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.calMiniItemLink:hover {
+  background: var(--color-brand-soft);
+  border-color: color-mix(in srgb, var(--color-brand) 15%, transparent);
+}
+
+.calMiniDate {
+  font-weight: 600;
+  color: var(--color-text-faint);
+  white-space: nowrap;
+}
+
+.calMiniOverdue {
+  border-left: 2px solid var(--color-danger);
+  padding-left: calc(var(--space-3) - 2px);
+}
+
+/* Awareness strip */
+.awarenessList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.awarenessItem {
+  display: flex;
+  gap: var(--space-3);
+  align-items: baseline;
+  font-size: var(--fs-0);
+  color: var(--color-text-muted);
+}
+
+.awarenessDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-brand);
+  flex-shrink: 0;
+  margin-top: 0.45em;
+}
+
+.awarenessItem a {
+  color: var(--color-brand);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.awarenessItem a:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 960px) {
+  .notifCenter {
+    position: fixed;
+    right: var(--space-4);
+    left: var(--space-4);
+    top: 4.5rem;
+    width: auto;
+    max-height: min(32rem, calc(100vh - 6rem));
+  }
+}
+
+@media (max-width: 640px) {
+  .panelHeader,
+  .panelBody {
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
+  }
+}

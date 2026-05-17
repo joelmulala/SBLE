@@ -23,8 +23,7 @@ export default function LecturerControlsPanel({
 }) {
   return (
     <section className={styles.panel} aria-label="Instructor classroom controls">
-      <h3 className={styles.heading}>Classroom control</h3>
-      <p className={styles.hint}>Moderation uses the live room service. Students receive brief on-screen notices.</p>
+      <h3 className={styles.heading}>Session</h3>
       <SessionControlBar
         participationLocked={participationLocked}
         onToggleLock={onToggleParticipationLock}

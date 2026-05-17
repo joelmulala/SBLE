@@ -80,3 +80,16 @@
 .shell:fullscreen .presentationColumn {
   min-height: 100%;
 }
+
+.shellExpanded .presentationCanvas {
+  padding: 0.35rem;
+}
+
+.shellExpanded .presentationColumn {
+  gap: 0;
+}
+
+.shellExpanded[data-mode='lecturer_presentation'] .presentationCanvas,
+.shellExpanded[data-mode='student_presentation'] .presentationCanvas {
+  padding: 0.25rem;
+}

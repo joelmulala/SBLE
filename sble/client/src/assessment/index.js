@@ -7,4 +7,9 @@ export {
   getStudentQuizUiState,
   getQuizHubStudentSnapshot
 } from './quizStudentWorkflow';
+export {
+  ExamStudentPhase,
+  getStudentExamUiState,
+  computeExamParticipation
+} from './examStudentWorkflow';
 export { useAssessmentRoles } from './useAssessmentRoles';

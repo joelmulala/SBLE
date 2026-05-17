@@ -4,27 +4,22 @@
   gap: var(--space-5);
 }
 
-.breadcrumb {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--fs-0);
-  color: var(--color-text-muted);
+.courseContext {
+  margin: 0;
+  font-size: var(--fs-1);
+  font-weight: 600;
+  color: var(--color-text);
+  letter-spacing: -0.01em;
 }
 
-.breadcrumb a {
-  color: var(--color-brand);
-  text-decoration: none;
-  font-weight: 500;
-}
-
-.breadcrumb a:hover {
-  text-decoration: underline;
-}
-
-.breadcrumbSep {
+.courseContextLabel {
+  display: block;
+  font-size: var(--fs-00);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: var(--color-text-faint);
+  margin-bottom: 0.15rem;
 }
 
 .courseNav {

@@ -1,0 +1,63 @@
+.cue {
+  position: absolute;
+  top: 3.15rem;
+  left: 0.65rem;
+  z-index: 14;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: rgba(120, 53, 15, 0.82);
+  color: #fef3c7;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: background 0.15s ease, transform 0.15s ease;
+  animation: cueIn 0.28s ease-out;
+}
+
+.cue:hover {
+  background: rgba(146, 64, 14, 0.92);
+  transform: translateY(-1px);
+}
+
+.icon {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: min(14rem, 50vw);
+}
+
+.names {
+  font-weight: 500;
+  opacity: 0.9;
+}
+
+@keyframes cueIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 520px) {
+  .cue {
+    top: auto;
+    bottom: 5.25rem;
+    left: 0.5rem;
+    max-width: calc(100% - 1rem);
+  }
+}

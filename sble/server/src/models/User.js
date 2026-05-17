@@ -2,7 +2,7 @@ const { DataTypes } = require('sequelize');
 const sequelize = require('../config/database');
 
 const User = sequelize.define('User', {
-  id: { type: DataTypes.STRING(36), primaryKey: true }, // Keycloak UUID
+  id: { type: DataTypes.STRING(36), primaryKey: true },
   email: { type: DataTypes.STRING, allowNull: false, unique: true },
   full_name: { type: DataTypes.STRING, allowNull: false },
   role: { type: DataTypes.ENUM('student', 'lecturer', 'admin'), defaultValue: 'student' },
@@ -13,6 +13,11 @@ const User = sequelize.define('User', {
   mode: { type: DataTypes.ENUM('Full-time', 'Evening', 'ODL'), allowNull: true },
   institution: { type: DataTypes.STRING(255), allowNull: true },
   staff_email: { type: DataTypes.STRING, allowNull: true, unique: true },
+  password_hash: { type: DataTypes.STRING(255), allowNull: true },
+  password_reset_token_hash: { type: DataTypes.STRING(64), allowNull: true },
+  password_reset_expires_at: { type: DataTypes.DATE, allowNull: true },
+  token_version: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+  password_changed_at: { type: DataTypes.DATE, allowNull: true },
   is_active: { type: DataTypes.BOOLEAN, defaultValue: true }
 }, { tableName: 'users', timestamps: true, createdAt: 'created_at', updatedAt: false });
 

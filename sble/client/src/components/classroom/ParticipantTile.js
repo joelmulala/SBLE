@@ -1,5 +1,6 @@
-import React, { useEffect, useReducer, useRef } from 'react';
-import { RoomEvent, Track, isLocalParticipant } from 'livekit-client';
+import React, { useEffect, useRef } from 'react';
+import { Track, isLocalParticipant } from 'livekit-client';
+import useRoomMediaVersion from '../../hooks/useRoomMediaVersion';
 import ReactionBadgeOverlay from './ReactionBadgeOverlay';
 import styles from './ParticipantTile.module.css';
 
@@ -14,8 +15,11 @@ function roleLabel(metadata) {
   return '';
 }
 
-function matchesParticipant(participant, p) {
-  return p && participant && p.identity === participant.identity;
+function attachVideoTrack(track, el) {
+  if (!track || !el) return;
+  try {
+    track.attach(el);
+  } catch (_) { /* ignore */ }
 }
 
 /**
@@ -26,6 +30,7 @@ function matchesParticipant(participant, p) {
  *   isPrimarySpeaker?: boolean,
  *   isLecturerRole?: boolean,
  *   dimmed?: boolean,
+ *   hideLabel?: boolean,
  *   signals?: { raisedHand?: boolean, hasQuestion?: boolean, participationAck?: string | null }
  * }} props
  */
@@ -36,12 +41,13 @@ export default function ParticipantTile({
   isPrimarySpeaker = false,
   isLecturerRole = false,
   dimmed = false,
+  hideLabel = false,
   signals = null
 }) {
   const camRef = useRef(null);
   const screenRef = useRef(null);
   const audioMountRef = useRef(null);
-  const [, version] = useReducer((n) => n + 1, 0);
+  const version = useRoomMediaVersion(room, participant);
 
   const camPub = participant.getTrackPublication(Track.Source.Camera);
   const screenPub = participant.getTrackPublication(Track.Source.ScreenShare);
@@ -49,62 +55,32 @@ export default function ParticipantTile({
   const hasScreen = Boolean(screenPub?.track);
 
   useEffect(() => {
-    if (!room) return undefined;
-    const bump = () => version();
-
-    const onTrackSubscribed = (_t, _pub, p) => {
-      if (matchesParticipant(participant, p)) bump();
-    };
-    const onTrackUnsubscribed = (_t, _pub, p) => {
-      if (matchesParticipant(participant, p)) bump();
-    };
-    const onLocalPublished = (_pub, p) => {
-      if (matchesParticipant(participant, p)) bump();
-    };
-    const onLocalUnpublished = (_pub, p) => {
-      if (matchesParticipant(participant, p)) bump();
-    };
-    const onMeta = (_prev, p) => {
-      if (matchesParticipant(participant, p)) bump();
-    };
-    const onName = (_name, p) => {
-      if (matchesParticipant(participant, p)) bump();
-    };
-
-    room.on(RoomEvent.TrackSubscribed, onTrackSubscribed);
-    room.on(RoomEvent.TrackUnsubscribed, onTrackUnsubscribed);
-    room.on(RoomEvent.LocalTrackPublished, onLocalPublished);
-    room.on(RoomEvent.LocalTrackUnpublished, onLocalUnpublished);
-    room.on(RoomEvent.ParticipantMetadataChanged, onMeta);
-    room.on(RoomEvent.ParticipantNameChanged, onName);
-
-    return () => {
-      room.off(RoomEvent.TrackSubscribed, onTrackSubscribed);
-      room.off(RoomEvent.TrackUnsubscribed, onTrackUnsubscribed);
-      room.off(RoomEvent.LocalTrackPublished, onLocalPublished);
-      room.off(RoomEvent.LocalTrackUnpublished, onLocalUnpublished);
-      room.off(RoomEvent.ParticipantMetadataChanged, onMeta);
-      room.off(RoomEvent.ParticipantNameChanged, onName);
-    };
-  }, [room, participant]);
-
-  useEffect(() => {
     const camEl = camRef.current;
     const screenEl = screenRef.current;
     const camPublication = participant.getTrackPublication(Track.Source.Camera);
     const screenPubInner = participant.getTrackPublication(Track.Source.ScreenShare);
     const attached = [];
+    let rafId = 0;
+    let cancelled = false;
 
-    if (camPublication?.track && camEl) {
-      camPublication.track.attach(camEl);
-      attached.push({ track: camPublication.track, el: camEl });
-    }
-    if (screenPubInner?.track && screenEl) {
-      screenPubInner.track.attach(screenEl);
-      attached.push({ track: screenPubInner.track, el: screenEl });
-    }
+    const bind = () => {
+      if (cancelled) return;
+      if (camPublication?.track && camEl) {
+        attachVideoTrack(camPublication.track, camEl);
+        attached.push({ track: camPublication.track, el: camEl });
+      }
+      if (screenPubInner?.track && screenEl) {
+        attachVideoTrack(screenPubInner.track, screenEl);
+        attached.push({ track: screenPubInner.track, el: screenEl });
+      }
+    };
+
+    bind();
+    rafId = requestAnimationFrame(bind);
 
     return () => {
+      cancelled = true;
+      if (rafId) cancelAnimationFrame(rafId);
       attached.forEach(({ track, el }) => {
         try {
           track.detach(el);
@@ -144,6 +120,7 @@ export default function ParticipantTile({
   const name = participant.name || participant.identity || 'Participant';
   const rLabel = roleLabel(participant.metadata);
   const avatarInitial = (name.trim().charAt(0) || '?').toUpperCase();
+  const showTileLabel = !hideLabel && variant !== 'cinema' && variant !== 'main';
 
   const rootClass = [
     styles.tile,
@@ -185,14 +162,15 @@ export default function ParticipantTile({
       {signals ? (
         <ReactionBadgeOverlay
           raisedHand={Boolean(signals.raisedHand)}
-          hasQuestion={Boolean(signals.hasQuestion)}
           participationAck={signals.participationAck || null}
         />
       ) : null}
-      <div className={styles.tileLabel}>
-        <div className={styles.tileName}>{name}</div>
-        {rLabel && !isLecturerRole ? <div className={styles.tileRole}>{rLabel}</div> : null}
-      </div>
+      {showTileLabel ? (
+        <div className={styles.tileLabel}>
+          <div className={styles.tileName}>{name}</div>
+          {rLabel && !isLecturerRole ? <div className={styles.tileRole}>{rLabel}</div> : null}
+        </div>
+      ) : null}
     </div>
   );
 }

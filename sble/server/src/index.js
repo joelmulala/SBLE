@@ -18,6 +18,8 @@ const { ensureInstitutionalSchema } = require('./services/academic/ensureInstitu
 const { ensureCourseModulesSchema } = require('./services/academic/ensureCourseModulesSchema');
 const { ensureCalendarSchema } = require('./services/academic/ensureCalendarSchema');
 const { ensureLiveClassSchema } = require('./services/academic/ensureLiveClassSchema');
+const { ensurePasswordAuthSchema } = require('./services/auth/ensurePasswordAuthSchema');
+const { verifyTransport } = require('./services/email/mailTransport');
 
 // Routes
 const authRoutes = require('./routes/auth');
@@ -330,6 +332,11 @@ const startServer = async () => {
     await ensureCourseModulesSchema();
     await ensureCalendarSchema();
     await ensureLiveClassSchema();
+    await ensurePasswordAuthSchema();
+    const smtpCheck = await verifyTransport();
+    if (process.env.SMTP_HOST && !smtpCheck.ok) {
+      logger.warn('SMTP is configured but verification failed — password reset emails may not deliver');
+    }
     httpServer.listen(PORT, () => {
       const addr = httpServer.address();
       logger.info(`SBLE server running on port ${PORT}`);
