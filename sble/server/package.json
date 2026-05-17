@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
+    "migrate": "node scripts/migrate.js",
     "verify:system": "node scripts/verify-system.js",
     "seed:test-students": "node scripts/seed-test-students.js",
     "seed:demo": "node scripts/seed-demo.js",
