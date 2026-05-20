@@ -1,14 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import {
-  AssessmentCard,
-  AssessmentSectionTitle,
-  AssessmentEmpty,
-  Field,
-  SelectInput
+  AssessmentEmpty
 } from '../assessment/AssessmentPrimitives';
 import {
   ProgressBar,
-  SummaryTile,
   GradeCellDisplay,
   LetterGrade,
   GradingNavLinks
@@ -22,6 +17,8 @@ import {
   formatWhen
 } from './gradebookUtils';
 import StudentDetailPanel from './StudentDetailPanel';
+import { KpiStatGrid, StatCard, Panel, FilterSelect, PageActions } from '../ui';
+import ui from '../ui/system.module.css';
 import s from './GradebookUI.module.css';
 
 const FILTERS = [
@@ -32,10 +29,6 @@ const FILTERS = [
 
 export default function LecturerGradebookView({
   courseDetail,
-  courseOptions,
-  selectedCourseId,
-  onCourseChange,
-  routeCourseId,
   selectedStudentId,
   onSelectStudent,
   studentBreakdown
@@ -47,7 +40,7 @@ export default function LecturerGradebookView({
   const examCols = courseDetail?.columns?.exams || [];
   const stats = courseDetail?.statistics;
   const weights = courseDetail?.weights;
-  const courseId = courseDetail?.course?.id || selectedCourseId;
+  const courseId = courseDetail?.course?.id;
 
   const filteredRows = useMemo(() => {
     const rows = courseDetail?.rows || [];
@@ -77,27 +70,14 @@ export default function LecturerGradebookView({
 
   return (
     <>
-      {!routeCourseId && courseOptions.length > 1 ? (
-        <AssessmentCard>
-          <Field label="Course">
-            <SelectInput value={selectedCourseId} onChange={(e) => onCourseChange(e.target.value)}>
-              {courseOptions.map((c) => (
-                <option key={c.id} value={c.id}>{c.title}</option>
-              ))}
-            </SelectInput>
-          </Field>
-        </AssessmentCard>
-      ) : null}
+      <KpiStatGrid>
+        <StatCard label="Enrolled" value={stats?.studentsEnrolled ?? '—'} hint="Active roster" />
+        <StatCard label="Class average" value={formatScore(stats?.classAverage)} hint="Weighted overall" />
+        <StatCard label="Pass rate" value={stats?.passRatePercent != null ? `${stats.passRatePercent}%` : '—'} hint="Meeting threshold" />
+        <StatCard label="At risk" value={atRiskCount} hint={`${missingCount} with missing work`} />
+      </KpiStatGrid>
 
-      <AssessmentCard>
-        <AssessmentSectionTitle>Course overview</AssessmentSectionTitle>
-        <div className={s.summaryGrid}>
-          <SummaryTile label="Enrolled" value={stats?.studentsEnrolled ?? '—'} />
-          <SummaryTile label="Class average" value={formatScore(stats?.classAverage)} />
-          <SummaryTile label="Pass rate" value={stats?.passRatePercent != null ? `${stats.passRatePercent}%` : '—'} />
-          <SummaryTile label="At risk" value={atRiskCount} hint="Below 50% overall" />
-          <SummaryTile label="Missing work" value={missingCount} hint="One or more gaps" />
-        </div>
+      <Panel title="Grading progress">
         <ProgressBar
           label="Assignment grading"
           hint={`${assignGradedPct}%`}
@@ -110,31 +90,28 @@ export default function LecturerGradebookView({
           value={quizGradedPct}
           tone="brand"
         />
-        <p style={{ marginTop: 'var(--space-4)', fontSize: 'var(--fs-00)', color: 'var(--color-text-muted)' }}>
+        <p className={s.weightsLine}>
           Weights: Assignments {(weights?.assignments || 0) * 100}% · Quizzes {(weights?.quizzes || 0) * 100}%
         </p>
         {courseId ? <GradingNavLinks courseId={courseId} /> : null}
-      </AssessmentCard>
+      </Panel>
 
-      <AssessmentCard>
-        <div className={s.matrixCard}>
-        <div className={s.matrixHeader}>
-          <AssessmentSectionTitle>Gradebook</AssessmentSectionTitle>
-          <div className={s.toolbarGroup}>
+      <PageActions
+        filters={(
+          <FilterSelect
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            aria-label="Filter gradebook rows"
+          >
             {FILTERS.map((f) => (
-              <button
-                key={f.id}
-                type="button"
-                className={`${s.filterChip} ${filter === f.id ? s.filterChipActive : ''}`}
-                onClick={() => setFilter(f.id)}
-              >
-                {f.label}
-              </button>
+              <option key={f.id} value={f.id}>{f.label}</option>
             ))}
-          </div>
-        </div>
+          </FilterSelect>
+        )}
+      />
 
-        <div className={s.matrixScroll}>
+      <Panel title="Grade matrix" lead={`${filteredRows.length} student${filteredRows.length === 1 ? '' : 's'}`} flush>
+        <div className={s.matrixScroll} tabIndex={0} role="region" aria-label="Grade matrix">
           <table className={s.gradeTable}>
             <thead>
               <tr>
@@ -176,9 +153,8 @@ export default function LecturerGradebookView({
                 return (
                   <tr
                     key={row.userId}
-                    className={`${selected ? s.rowSelected : ''} ${atRisk ? s.rowAtRisk : ''}`}
+                    className={`${s.rowClickable} ${selected ? s.rowSelected : ''} ${atRisk ? s.rowAtRisk : ''}`}
                     onClick={() => onSelectStudent(String(row.userId))}
-                    style={{ cursor: 'pointer' }}
                   >
                     <td className={s.colStudent}>
                       <div className={s.studentName}>{row.fullName || row.studentId}</div>
@@ -211,8 +187,7 @@ export default function LecturerGradebookView({
         {filteredRows.length === 0 ? (
           <p className={s.emptyHint}>No students match this filter.</p>
         ) : null}
-        </div>
-      </AssessmentCard>
+      </Panel>
 
       {studentBreakdown ? (
         <StudentDetailPanel row={studentBreakdown} courseId={courseId} isLecturer />

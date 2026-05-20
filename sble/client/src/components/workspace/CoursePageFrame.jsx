@@ -1,10 +1,10 @@
 import React from 'react';
 import CourseWorkspaceShell from './CourseWorkspaceShell';
 
-export default function CoursePageFrame({ courseId, pageTitle, children }) {
+export default function CoursePageFrame({ courseId, children }) {
   if (!courseId) return children;
   return (
-    <CourseWorkspaceShell pageTitle={pageTitle}>
+    <CourseWorkspaceShell>
       {children}
     </CourseWorkspaceShell>
   );

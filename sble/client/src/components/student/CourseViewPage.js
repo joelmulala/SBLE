@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import api from '../../config/api';
+import AssessmentWorkspace from '../workspace/AssessmentWorkspace';
+import { WorkspacePageShell, LoadingState, EmptyState } from '../ui';
 import CourseLearningHome from '../courseModules/CourseLearningHome';
 
 export default function CourseViewPage({ courseId }) {
@@ -41,30 +43,32 @@ export default function CourseViewPage({ courseId }) {
 
   if (loading) {
     return (
-      <div className="app-page">
-        <div className="app-container">
-          <p className="app-meta">Loading course...</p>
-        </div>
-      </div>
+      <AssessmentWorkspace courseId={courseId}>
+        <LoadingState label="Loading course…" />
+      </AssessmentWorkspace>
     );
   }
 
   if (error) {
     return (
-      <div className="app-page">
-        <div className="app-container">
-          <p style={{ color: '#c0392b' }}>{error}</p>
-        </div>
-      </div>
+      <WorkspacePageShell>
+        <EmptyState
+          title="Course unavailable"
+          message={error}
+        />
+      </WorkspacePageShell>
     );
   }
 
   return (
-    <div className="app-page">
-      <div className="app-container">
-        <CourseLearningHome courseId={courseId} course={course} isLecturer={false} />
-      </div>
-    </div>
+    <AssessmentWorkspace courseId={courseId}>
+      <CourseLearningHome
+        courseId={courseId}
+        course={course}
+        isLecturer={false}
+        embeddedInShell
+      />
+    </AssessmentWorkspace>
   );
 }
 

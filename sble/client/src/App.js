@@ -23,14 +23,15 @@ import LecturerPerformancePage from './pages/lecturer/LecturerPerformancePage';
 import GradebookPage from './pages/shared/GradebookPage';
 import CalendarPage from './pages/shared/CalendarPage';
 import CourseCommunicationsPage from './pages/shared/CourseCommunicationsPage';
+import { PageGate } from './components/ui/WorkspaceFeedback';
 
 const ProtectedRoute = ({ children, roles }) => {
   const { keycloak, initialized } = useKeycloak();
 
-  if (!initialized) return <div style={{ padding: 32 }}>Loading...</div>;
+  if (!initialized) return <PageGate variant="loading" />;
   if (!keycloak.authenticated) return <Navigate to="/login" replace />;
   if (roles && !roles.some(r => keycloak.hasRealmRole(r))) {
-    return <div style={{ padding: 32 }}>Access denied.</div>;
+    return <PageGate variant="denied" />;
   }
   return children;
 };
@@ -38,7 +39,7 @@ const ProtectedRoute = ({ children, roles }) => {
 function HomeRoute() {
   const { keycloak, initialized } = useKeycloak();
 
-  if (!initialized) return <div style={{ padding: 32 }}>Loading...</div>;
+  if (!initialized) return <PageGate variant="loading" />;
 
   const isLecturer = keycloak.hasRealmRole('lecturer') || keycloak.hasRealmRole('admin');
   if (isLecturer) {
@@ -51,7 +52,7 @@ function HomeRoute() {
 function CoursesRouteRedirect() {
   const { keycloak, initialized } = useKeycloak();
 
-  if (!initialized) return <div style={{ padding: 32 }}>Loading...</div>;
+  if (!initialized) return <PageGate variant="loading" />;
 
   const isLecturer = keycloak.hasRealmRole('lecturer') || keycloak.hasRealmRole('admin');
   return <Navigate to={isLecturer ? '/lecturer/courses' : '/student/courses'} replace />;
@@ -61,7 +62,7 @@ function CourseDetailRouteRedirect() {
   const { keycloak, initialized } = useKeycloak();
   const { id } = useParams();
 
-  if (!initialized) return <div style={{ padding: 32 }}>Loading...</div>;
+  if (!initialized) return <PageGate variant="loading" />;
 
   const isLecturer = keycloak.hasRealmRole('lecturer') || keycloak.hasRealmRole('admin');
   return <Navigate to={isLecturer ? `/lecturer/courses/${id}` : `/student/courses/${id}`} replace />;
@@ -86,7 +87,7 @@ export default function App() {
           <Route path="lecturer/dashboard" element={<ProtectedRoute roles={['lecturer', 'admin']}><Dashboard /></ProtectedRoute>} />
           <Route path="lecturer/courses" element={<ProtectedRoute roles={['lecturer', 'admin']}><LecturerCoursesPage /></ProtectedRoute>} />
           <Route path="lecturer/courses/:courseId" element={<ProtectedRoute roles={['lecturer', 'admin']}><CourseDetail /></ProtectedRoute>} />
-          <Route path="lecturer/enrollment" element={<Navigate to="/lecturer/courses" replace />} />
+          <Route path="lecturer/enrollment" element={<ProtectedRoute roles={['lecturer', 'admin']}><LecturerEnrollmentPage /></ProtectedRoute>} />
           <Route path="lecturer/assignments" element={<Navigate to="/lecturer/courses" replace />} />
           <Route path="lecturer/quizzes" element={<Navigate to="/lecturer/courses" replace />} />
           <Route path="lecturer/exams" element={<Navigate to="/lecturer/courses" replace />} />

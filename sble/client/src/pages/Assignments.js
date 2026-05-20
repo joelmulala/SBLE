@@ -7,27 +7,33 @@ import {
   feedbackAlertType,
   useAssessmentRoles
 } from '../assessment';
+import { computeStudentAssignmentSummary } from '../assessment/assignmentStudentWorkflow';
 import {
-  AssessmentShell,
-  AssessmentPageHeader,
   AssessmentCard,
-  AssessmentSectionTitle,
   AssessmentMeta,
-  AssessmentAlert,
   AssessmentList,
-  BtnPrimary,
   Field,
   TextInput,
   TextArea
 } from '../components/assessment/AssessmentPrimitives';
-import CoursePageFrame from '../components/workspace/CoursePageFrame';
+import AssessmentWorkspace from '../components/workspace/AssessmentWorkspace';
+import {
+  PageActions,
+  Panel,
+  Button,
+  KpiStatGrid,
+  StatCard,
+  SearchInput,
+  LoadingState,
+  EmptyState
+} from '../components/ui';
+import ui from '../components/ui/system.module.css';
 import LecturerAssignmentCard from '../components/assignments/LecturerAssignmentCard';
 import StudentAssignmentCard from '../components/assignments/StudentAssignmentCard';
 import GradingPanel from '../components/assignments/GradingPanel';
 import AssignmentsEmptyState from '../components/assignments/AssignmentsEmptyState';
 import { computeAssignmentStats } from '../components/assignments/assignmentUtils';
 import s from '../components/assessment/AssessmentPrimitives.module.css';
-import dash from '../components/assignments/Assignments.module.css';
 
 export default function Assignments() {
   const { courseId } = useParams();
@@ -56,6 +62,8 @@ export default function Assignments() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [tableQuery, setTableQuery] = useState('');
 
   const loadSubmissions = useCallback(async (assignmentId) => {
     const res = await api.get(`/assignments/${assignmentId}/submissions`);
@@ -119,6 +127,11 @@ export default function Assignments() {
     });
     return { total, graded, pending };
   }, [isLecturer, submissionsByAssignment]);
+
+  const studentSummary = useMemo(() => {
+    if (!isStudent) return null;
+    return computeStudentAssignmentSummary(assignments);
+  }, [isStudent, assignments]);
 
   const updateAssignmentSubmission = (assignmentId, submission) => {
     setAssignments((prev) => prev.map((assignment) => (
@@ -314,82 +327,97 @@ export default function Assignments() {
   const messageAlertType = message ? feedbackAlertType(message) : null;
   const activeAssignment = assignments.find((a) => a.id === openSubmissionsAssignmentId);
 
+  const filteredAssignments = useMemo(() => {
+    const q = tableQuery.trim().toLowerCase();
+    if (!q) return assignments;
+    return assignments.filter((a) => `${a.title} ${a.description || ''}`.toLowerCase().includes(q));
+  }, [assignments, tableQuery]);
+
   return (
-    <AssessmentShell wide={isLecturer}>
-      <CoursePageFrame courseId={courseId} pageTitle="Assignments">
-        <AssessmentPageHeader
-          kicker={isLecturer ? 'Teaching · assessment' : 'Learning · assessment'}
-          title="Assignments"
-          lead={
-            isLecturer
-              ? 'Manage briefs, track submission progress, and complete grading in a structured workspace.'
-              : 'View requirements, submit coursework, and read feedback once your lecturer releases results.'
-          }
-        />
+    <AssessmentWorkspace courseId={courseId}>
+      <p className={ui.lead}>
+        {isLecturer
+          ? 'Manage briefs, track submission progress, and complete grading in a structured workspace.'
+          : 'View requirements, submit coursework, and read feedback once your lecturer releases results.'}
+      </p>
 
-        {loading && <AssessmentMeta>Loading assignments…</AssessmentMeta>}
-        {error ? <AssessmentAlert type="error">{error}</AssessmentAlert> : null}
-        {message && messageAlertType ? (
-          <AssessmentAlert type={messageAlertType}>{message}</AssessmentAlert>
-        ) : null}
-
-        {isLecturer && lecturerSummary && assignments.length > 0 ? (
-          <div className={dash.dashboard}>
-            <div className={dash.summaryStrip}>
-              <div className={dash.summaryCard}>
-                <span className={dash.summaryValue}>{assignments.length}</span>
-                <span className={dash.summaryLabel}>Assignments</span>
-              </div>
-              <div className={dash.summaryCard}>
-                <span className={dash.summaryValue}>{lecturerSummary.total}</span>
-                <span className={dash.summaryLabel}>Submissions</span>
-              </div>
-              <div className={dash.summaryCard}>
-                <span className={dash.summaryValue}>{lecturerSummary.graded}</span>
-                <span className={dash.summaryLabel}>Graded</span>
-              </div>
-              <div className={dash.summaryCard}>
-                <span className={dash.summaryValue}>{lecturerSummary.pending}</span>
-                <span className={dash.summaryLabel}>Pending review</span>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        {isLecturer && (
-          <AssessmentCard>
-            <AssessmentSectionTitle>Create assignment</AssessmentSectionTitle>
-            <form onSubmit={createAssignment} className={s.formGrid}>
-              <Field label="Title">
-                <TextInput value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Assignment title" required />
-              </Field>
-              <Field label="Instructions / description">
-                <TextArea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="What students should submit and how it will be evaluated" rows={4} />
-              </Field>
-              <Field label="Due date">
-                <TextInput type="datetime-local" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} />
-              </Field>
-              <div>
-                <input
-                  type="file"
-                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                  onChange={(e) => setAssignmentFile(e.target.files?.[0] || null)}
-                />
-                <p className={s.inlineHint}>Optional: attach a brief, rubric, or template for students.</p>
-              </div>
-              <div>
-                <BtnPrimary type="submit" disabled={creatingAssignment}>
-                  {creatingAssignment ? 'Creating…' : assignmentFile ? 'Create & upload' : 'Create assignment'}
-                </BtnPrimary>
-              </div>
-            </form>
-          </AssessmentCard>
+      <PageActions
+        search={(
+          <SearchInput
+            placeholder="Search assignments…"
+            value={tableQuery}
+            onChange={(e) => setTableQuery(e.target.value)}
+            aria-label="Search assignments"
+          />
         )}
+        actions={isLecturer ? (
+          <Button type="button" variant="primary" onClick={() => setShowCreateForm((prev) => !prev)}>
+            {showCreateForm ? 'Close form' : 'Create assignment'}
+          </Button>
+        ) : null}
+      />
 
-        <AssessmentSectionTitle>{isLecturer ? 'Course assignments' : 'Your assignments'}</AssessmentSectionTitle>
+      {loading ? <LoadingState label="Loading assignments…" /> : null}
+      {error ? <div className={`${ui.notice} ${ui.noticeError}`}>{error}</div> : null}
+      {message && messageAlertType ? (
+        <div className={`${ui.notice} ${messageAlertType === 'success' ? ui.noticeSuccess : ui.noticeError}`}>
+          {message}
+        </div>
+      ) : null}
 
+      {isLecturer && lecturerSummary && assignments.length > 0 ? (
+        <KpiStatGrid>
+          <StatCard label="Assignments" value={assignments.length} hint="In this course" />
+          <StatCard label="Submissions" value={lecturerSummary.total} hint="Total received" />
+          <StatCard label="Graded" value={lecturerSummary.graded} hint="Published or draft" />
+          <StatCard label="Pending review" value={lecturerSummary.pending} hint="Awaiting grading" />
+        </KpiStatGrid>
+      ) : null}
+
+      {studentSummary ? (
+        <KpiStatGrid>
+          <StatCard label="Pending" value={studentSummary.pending} hint="Ready to submit" />
+          <StatCard label="Submitted" value={studentSummary.submitted} hint="Awaiting grade" />
+          <StatCard label="Graded" value={studentSummary.graded} hint="Results available" />
+          <StatCard label="Overdue" value={studentSummary.overdue} hint="Past due, not submitted" />
+        </KpiStatGrid>
+      ) : null}
+
+      {isLecturer && showCreateForm ? (
+        <Panel title="Create assignment">
+          <form onSubmit={createAssignment} className={s.formGrid}>
+            <Field label="Title">
+              <TextInput value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Assignment title" required />
+            </Field>
+            <Field label="Instructions / description">
+              <TextArea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="What students should submit and how it will be evaluated" rows={4} />
+            </Field>
+            <Field label="Due date">
+              <TextInput type="datetime-local" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} />
+            </Field>
+            <div className={ui.field}>
+              <label htmlFor="assignment-brief-file">Attachment</label>
+              <input
+                id="assignment-brief-file"
+                type="file"
+                className={ui.input}
+                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                onChange={(e) => setAssignmentFile(e.target.files?.[0] || null)}
+              />
+              <p className={s.inlineHint}>Optional: attach a brief, rubric, or template for students.</p>
+            </div>
+            <div className={ui.formActions}>
+              <Button type="submit" variant="primary" disabled={creatingAssignment}>
+                {creatingAssignment ? 'Creating…' : assignmentFile ? 'Create & upload' : 'Create assignment'}
+              </Button>
+            </div>
+          </form>
+        </Panel>
+      ) : null}
+
+      <Panel title={isLecturer ? 'All assignments' : 'Your assignments'}>
         <AssessmentList>
-          {assignments.map((assignment) => (
+          {filteredAssignments.map((assignment) => (
             <li key={assignment.id}>
               {isLecturer ? (
                 <LecturerAssignmentCard
@@ -427,28 +455,38 @@ export default function Assignments() {
         </AssessmentList>
 
         {!loading && assignments.length === 0 ? (
-          <AssignmentsEmptyState isLecturer={isLecturer} title="No assignments yet" />
-        ) : null}
-
-        {gradingSubmission && activeAssignment ? (
-          <GradingPanel
-            submission={gradingSubmission}
-            assignment={activeAssignment}
-            grade={gradeField}
-            feedback={feedbackField}
-            publish={publishField}
-            saving={gradingSaving}
-            error={submissionsError}
-            onGradeChange={setGradeField}
-            onFeedbackChange={setFeedbackField}
-            onPublishChange={setPublishField}
-            onSaveDraft={() => persistGrading(false)}
-            onPublish={() => persistGrading(true)}
-            onClose={() => setGradingSubmission(null)}
-            onDownload={downloadSubmission}
+          <AssignmentsEmptyState
+            isLecturer={isLecturer}
+            title="No assignments yet"
+            lead={isLecturer
+              ? undefined
+              : 'Assignments for this course will appear here when your lecturer publishes them.'}
           />
         ) : null}
-      </CoursePageFrame>
-    </AssessmentShell>
+
+        {!loading && assignments.length > 0 && filteredAssignments.length === 0 ? (
+          <EmptyState message="No assignments match your search." />
+        ) : null}
+      </Panel>
+
+      {gradingSubmission && activeAssignment ? (
+        <GradingPanel
+          submission={gradingSubmission}
+          assignment={activeAssignment}
+          grade={gradeField}
+          feedback={feedbackField}
+          publish={publishField}
+          saving={gradingSaving}
+          error={submissionsError}
+          onGradeChange={setGradeField}
+          onFeedbackChange={setFeedbackField}
+          onPublishChange={setPublishField}
+          onSaveDraft={() => persistGrading(false)}
+          onPublish={() => persistGrading(true)}
+          onClose={() => setGradingSubmission(null)}
+          onDownload={downloadSubmission}
+        />
+      ) : null}
+    </AssessmentWorkspace>
   );
 }

@@ -1,9 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import api from '../../config/api';
-import {
-  AssessmentAlert,
-  AssessmentMeta
-} from '../assessment/AssessmentPrimitives';
+import { AssessmentAlert, AssessmentMeta } from '../assessment/AssessmentPrimitives';
+import { Button } from '../ui';
+import ui from '../ui/system.module.css';
 import CourseStructureView from './CourseStructureView';
 import LecturerModuleBuilder from './LecturerModuleBuilder';
 import CourseContextSidebar from '../workspace/CourseContextSidebar';
@@ -13,6 +12,7 @@ export default function CourseLearningHome({
   courseId,
   course,
   isLecturer,
+  embeddedInShell = false,
   onStartLiveRoom,
   startingLiveRoom,
   liveRoomError
@@ -42,41 +42,53 @@ export default function CourseLearningHome({
     loadStructure();
   }, [loadStructure]);
 
+  const useCompactChrome = embeddedInShell;
+  const showSidebarNav = !embeddedInShell;
+
   return (
     <div className={s.learningHome}>
-      <section className={`app-surface ${s.hero}`}>
-        <div className="app-surface-body">
-          <p className={s.heroKicker}>{isLecturer ? 'Course workspace' : 'Learning path'}</p>
-          <h1 className={s.heroTitle}>{course?.title || `Course #${courseId}`}</h1>
-          {course?.description ? <p className={s.heroLead}>{course.description}</p> : null}
-          {course?.lecturer ? (
-            <AssessmentMeta style={{ marginTop: 'var(--space-3)' }}>Lecturer: {course.lecturer.full_name}</AssessmentMeta>
-          ) : null}
-          {isLecturer ? (
-            <div className={s.builderActions} style={{ marginTop: 'var(--space-4)' }}>
-              <button
-                type="button"
-                className="app-button app-button--primary"
-                onClick={onStartLiveRoom}
-                disabled={startingLiveRoom}
-              >
-                {startingLiveRoom ? 'Opening...' : 'Open live room'}
-              </button>
-              <button
-                type="button"
-                className="app-button app-button--secondary"
-                onClick={() => setBuilderMode((v) => !v)}
-              >
-                {builderMode ? 'View learning path' : 'Organize modules'}
-              </button>
-            </div>
-          ) : null}
-          {liveRoomError ? <AssessmentAlert>{liveRoomError}</AssessmentAlert> : null}
-        </div>
-      </section>
+      {useCompactChrome ? (
+        <p className={ui.lead}>
+          {isLecturer
+            ? 'Organize modules, start live sessions, and guide students through this course.'
+            : 'Follow the learning path below. Use the course sections above for materials, assignments, quizzes, exams, and grades.'}
+        </p>
+      ) : (
+        <section className={`app-surface ${s.hero}`}>
+          <div className="app-surface-body">
+            <p className={s.heroKicker}>{isLecturer ? 'Course workspace' : 'Learning path'}</p>
+            <h1 className={s.heroTitle}>{course?.title || `Course #${courseId}`}</h1>
+            {course?.description ? <p className={s.heroLead}>{course.description}</p> : null}
+            {course?.lecturer ? (
+              <p className={s.heroMeta}>Lecturer: {course.lecturer.full_name}</p>
+            ) : null}
+          </div>
+        </section>
+      )}
 
-      {error ? <AssessmentAlert>{error}</AssessmentAlert> : null}
-      {loading ? <AssessmentMeta>Loading course modules...</AssessmentMeta> : null}
+      {isLecturer ? (
+        <div className={s.lecturerToolbar}>
+          <Button
+            type="button"
+            variant="primary"
+            onClick={onStartLiveRoom}
+            disabled={startingLiveRoom}
+          >
+            {startingLiveRoom ? 'Opening…' : 'Open live room'}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => setBuilderMode((v) => !v)}
+          >
+            {builderMode ? 'View learning path' : 'Organize modules'}
+          </Button>
+        </div>
+      ) : null}
+
+      {liveRoomError ? <div className={`${ui.notice} ${ui.noticeError}`}>{liveRoomError}</div> : null}
+      {error ? <div className={`${ui.notice} ${ui.noticeError}`}>{error}</div> : null}
+      {loading ? <AssessmentMeta>Loading course modules…</AssessmentMeta> : null}
 
       {!loading && (
         <div className={s.layout}>
@@ -96,7 +108,12 @@ export default function CourseLearningHome({
             )}
           </main>
 
-          <CourseContextSidebar courseId={courseId} isLecturer={isLecturer} />
+          <CourseContextSidebar
+            courseId={courseId}
+            isLecturer={isLecturer}
+            showNavLinks={showSidebarNav}
+            showManageContent={showSidebarNav}
+          />
         </div>
       )}
     </div>

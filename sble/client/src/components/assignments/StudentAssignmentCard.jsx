@@ -1,15 +1,12 @@
-import React from 'react';
+import React, { useRef } from 'react';
+import { Button } from '../ui';
+import StatusPill from '../ui/StatusPill';
 import {
-  AssessmentCard,
-  AssessmentDivider,
-  AssessmentMeta,
-  BtnDanger,
-  BtnPrimary,
-  CardTitleRow,
-  StatusBadge
-} from '../assessment/AssessmentPrimitives';
-import { getAssignmentStudentUiState } from '../../assessment';
-import { formatDueDate, isAssignmentOverdue, isLateSubmission } from './assignmentUtils';
+  getAssignmentStudentUiState,
+  getStudentPrimaryStatus,
+  getStudentLifecycleStrip,
+  AssignmentStudentPhase
+} from '../../assessment/assignmentStudentWorkflow';
 import SubmissionDropzone from './SubmissionDropzone';
 import s from './Assignments.module.css';
 
@@ -26,125 +23,135 @@ export default function StudentAssignmentCard({
   downloadingBrief,
   showConfirm
 }) {
+  const feedbackRef = useRef(null);
   const submission = assignment.mySubmission || null;
-  const status = getAssignmentStudentUiState(assignment);
-  const overdue = isAssignmentOverdue(assignment) && !submission?.id;
-  const late = submission && isLateSubmission(submission, assignment);
+  const workflow = getAssignmentStudentUiState(assignment);
+  const primary = getStudentPrimaryStatus(assignment);
+  const lifecycle = getStudentLifecycleStrip(assignment);
+
+  const hasReleasedGrade = submission?.grade != null
+    && submission.grading_display !== 'graded_pending_release';
+  const awaitingRelease = submission?.grading_display === 'graded_pending_release';
+  const showUpload = workflow.canUpload;
+  const showFeedback = hasReleasedGrade || awaitingRelease;
+
+  const scrollToFeedback = () => {
+    feedbackRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  };
 
   return (
-    <AssessmentCard as="article" className={s.assignmentCard}>
-      <CardTitleRow
-        title={assignment.title}
-        aside={
-          <StatusBadge variant={status.badgeVariant}>{status.label}</StatusBadge>
-        }
-      />
-
-      {assignment.description ? (
-        <p className={s.description}>{assignment.description}</p>
-      ) : null}
-
-      <div className={s.detailGrid}>
-        <div className={s.detailItem}>
-          <label>Due date</label>
-          <span>{formatDueDate(assignment.due_date)}</span>
-        </div>
-        <div className={s.detailItem}>
-          <label>Submission</label>
-          <span>
-            {submission?.submitted_at
-              ? new Date(submission.submitted_at).toLocaleString()
-              : overdue ? 'Not submitted — overdue' : 'Not submitted'}
-          </span>
-        </div>
-        <div className={s.detailItem}>
-          <label>Status</label>
-          <span>
-            {late ? 'Submitted late' : status.label}
-          </span>
-        </div>
+    <article className={s.studentCard}>
+      <div className={s.studentCardTop}>
+        <h3 className={s.studentCardTitle}>{assignment.title}</h3>
+        <StatusPill variant={primary.variant}>{primary.label}</StatusPill>
       </div>
 
-      {assignment.file_name ? (
-        <>
-          <AssessmentDivider />
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', marginTop: 'var(--space-3)' }}>
-            <AssessmentMeta strong>Assignment materials: {assignment.file_name}</AssessmentMeta>
-            <BtnPrimary
-              type="button"
-              onClick={() => onDownloadBrief(assignment)}
-              disabled={downloadingBrief}
-            >
-              {downloadingBrief ? 'Downloading…' : 'Download brief'}
-            </BtnPrimary>
-          </div>
-        </>
+      {lifecycle.length > 0 ? (
+        <p className={s.studentLifecycleStrip}>
+          {lifecycle.map((part, i) => (
+            <span key={part}>
+              {i > 0 ? <span className={s.lifecycleSep}> · </span> : null}
+              {part}
+            </span>
+          ))}
+        </p>
       ) : null}
 
-      <p className={s.rubricPlaceholder}>
-        Grading criteria are described in the assignment brief. Your lecturer may attach a rubric file above.
-      </p>
+      {assignment.description ? (
+        <p className={s.studentDescription}>{assignment.description}</p>
+      ) : null}
 
-      {submission?.grade != null && submission.grading_display !== 'graded_pending_release' ? (
-        <div className={s.feedbackPanel}>
-          <h4 className={s.feedbackPanelTitle}>Instructor feedback</h4>
-          <p className={s.feedbackGrade}>Score: {submission.grade}%</p>
-          {submission.feedback ? (
-            <p className={s.feedbackBody}>{submission.feedback}</p>
+      {assignment.file_name ? (
+        <div className={s.studentBriefRow}>
+          <span className={s.studentBriefLabel}>Brief: {assignment.file_name}</span>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => onDownloadBrief(assignment)}
+            disabled={downloadingBrief}
+          >
+            {downloadingBrief ? 'Downloading…' : 'Download'}
+          </Button>
+        </div>
+      ) : null}
+
+      {showFeedback ? (
+        <div
+          ref={feedbackRef}
+          className={awaitingRelease ? s.feedbackPanelPending : s.feedbackPanel}
+        >
+          {hasReleasedGrade ? (
+            <>
+              <h4 className={s.feedbackPanelTitle}>Your grade</h4>
+              <p className={s.feedbackGrade}>{submission.grade}%</p>
+              {submission.feedback ? (
+                <p className={s.feedbackBody}>{submission.feedback}</p>
+              ) : (
+                <p className={s.feedbackEmpty}>No written feedback provided.</p>
+              )}
+            </>
           ) : (
-            <AssessmentMeta>No written feedback provided.</AssessmentMeta>
+            <>
+              <h4 className={s.feedbackPanelTitle}>Awaiting feedback</h4>
+              <p className={s.feedbackEmpty}>
+                Your work has been reviewed. Results will appear here when released.
+              </p>
+            </>
           )}
         </div>
       ) : null}
 
-      {submission?.grading_display === 'graded_pending_release' ? (
-        <div className={s.feedbackPanel} style={{ background: '#fffbeb', borderColor: '#fde68a' }}>
-          <h4 className={s.feedbackPanelTitle}>Grading in progress</h4>
-          <AssessmentMeta>Your work has been reviewed. Results will appear here when released.</AssessmentMeta>
-        </div>
-      ) : null}
+      <div className={s.studentActions}>
+        {hasReleasedGrade ? (
+          <Button type="button" variant="ghost" onClick={scrollToFeedback}>
+            View feedback
+          </Button>
+        ) : null}
 
-      {submission?.submitted_at && !submission.grade && submission.grading_display !== 'graded_pending_release' ? (
-        <>
-          <AssessmentDivider />
-          <AssessmentMeta strong>
-            Submitted {new Date(submission.submitted_at).toLocaleString()}
-            {late ? ' (late)' : ''}
-          </AssessmentMeta>
-        </>
-      ) : null}
-
-      {status.canUpload ? (
-        <>
-          <AssessmentDivider />
-          <SubmissionDropzone
-            file={file}
-            onFileChange={onFileChange}
-            disabled={!status.canUpload}
-            uploadProgress={uploadProgress}
-            hint={status.uploadLabel}
-          />
-          <div className={s.submitActions}>
-            <BtnPrimary
-              type="button"
-              onClick={onSubmit}
-              disabled={!file || submitting}
-            >
-              {submitting ? 'Uploading…' : status.uploadLabel}
-            </BtnPrimary>
-            {status.canDelete && submission?.id ? (
-              <BtnDanger type="button" onClick={onDelete} disabled={deleting}>
-                {deleting ? 'Removing…' : 'Remove submission'}
-              </BtnDanger>
+        {showUpload ? (
+          <>
+            <SubmissionDropzone
+              file={file}
+              onFileChange={onFileChange}
+              disabled={!workflow.canUpload}
+              uploadProgress={uploadProgress}
+              hint={workflow.uploadLabel}
+            />
+            <div className={s.studentSubmitRow}>
+              <Button
+                type="button"
+                variant="primary"
+                onClick={onSubmit}
+                disabled={!file || submitting}
+              >
+                {submitting ? 'Uploading…' : workflow.uploadLabel}
+              </Button>
+              {workflow.canDelete && submission?.id ? (
+                <Button type="button" variant="danger" onClick={onDelete} disabled={deleting}>
+                  {deleting ? 'Removing…' : 'Remove submission'}
+                </Button>
+              ) : null}
+            </div>
+            {showConfirm ? (
+              <p className={s.confirmBanner} role="status">
+                Submission received successfully.
+              </p>
             ) : null}
-          </div>
-          {showConfirm ? (
-            <p className={s.confirmBanner} role="status">
-              Submission received successfully.
-            </p>
-          ) : null}
-        </>
-      ) : null}
-    </AssessmentCard>
+          </>
+        ) : null}
+
+        {!showUpload && !hasReleasedGrade && workflow.phase === AssignmentStudentPhase.CLOSED ? (
+          <p className={s.studentClosedNote}>The due date has passed. Contact your lecturer if you need an extension.</p>
+        ) : null}
+
+        {!showUpload && !hasReleasedGrade
+          && (workflow.phase === AssignmentStudentPhase.SUBMITTED_LOCKED
+            || workflow.phase === AssignmentStudentPhase.SUBMITTED_RESUBMIT_ALLOWED) ? (
+          <p className={s.studentClosedNote}>
+            Your submission is on file. You will be notified when grading is complete.
+          </p>
+        ) : null}
+      </div>
+    </article>
   );
 }

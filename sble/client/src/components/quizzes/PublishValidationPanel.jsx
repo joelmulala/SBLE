@@ -1,35 +1,30 @@
 import React, { useMemo } from 'react';
 import { buildPublishReadiness } from '../../utils/quizIntegrity';
-import { AssessmentMeta } from '../assessment/AssessmentPrimitives';
 import s from './AssessmentQuiz.module.css';
 
-export default function PublishValidationPanel({ questions, form, showWhenValid = false }) {
+export default function PublishValidationPanel({ questions, form, showWhenValid = false, compact = false }) {
   const readiness = useMemo(
     () => buildPublishReadiness(questions, form),
     [questions, form]
   );
 
-  if (readiness.valid && !showWhenValid) {
-    return (
-      <div className={s.validationOk}>
-        Ready to publish — {readiness.totalMarks} total points across {questions.filter((q) => q.question_text?.trim()).length} questions.
-      </div>
-    );
-  }
+  const questionCount = questions.filter((q) => q.question_text?.trim()).length;
 
   if (readiness.valid) {
+    if (!showWhenValid) return null;
     return (
-      <div className={s.validationOk}>
-        Ready to publish — {readiness.totalMarks} total points.
+      <div className={s.validationOk} role="status">
+        <strong>Ready to publish.</strong>
+        {' '}
+        {readiness.totalMarks} points across {questionCount} question{questionCount === 1 ? '' : 's'}.
+        {form ? ` Duration: ${form.duration_hours || 0}h ${form.duration_minutes ?? 0}m.` : null}
       </div>
     );
   }
 
   return (
-    <div role="alert">
-      <AssessmentMeta strong style={{ color: 'var(--color-danger)' }}>
-        Publishing blocked — fix the following:
-      </AssessmentMeta>
+    <div className={compact ? s.validationBlockedCompact : s.validationBlocked} role="alert">
+      <p className={s.validationHeading}>Publishing is blocked until the following are resolved:</p>
       <ul className={s.validationList}>
         {readiness.errors.map((err) => (
           <li key={err}>{err}</li>

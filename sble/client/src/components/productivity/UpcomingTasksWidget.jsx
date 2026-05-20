@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { AssessmentEmpty, AssessmentMeta } from '../assessment/AssessmentPrimitives';
+import { AssessmentEmpty, AssessmentLoading } from '../assessment/AssessmentPrimitives';
 import s from './Productivity.module.css';
 
 const BADGE_CLASS = {
@@ -54,7 +54,7 @@ export default function UpcomingTasksWidget({
           <h2 className={s.panelTitle}>Upcoming tasks</h2>
         </div>
         <div className={s.panelBody}>
-          <AssessmentMeta>Loading tasks...</AssessmentMeta>
+          <AssessmentLoading label="Loading tasks…" />
         </div>
       </div>
     );

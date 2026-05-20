@@ -69,8 +69,22 @@ export function AssessmentAlert({ type = 'error', children }) {
   return <div className={cls}>{children}</div>;
 }
 
-export function AssessmentEmpty({ children }) {
-  return <div className={s.empty}>{children}</div>;
+export function AssessmentEmpty({ children, title }) {
+  return (
+    <div className={s.empty} role="status">
+      {title ? <p className={s.emptyTitle}>{title}</p> : null}
+      <div className={s.emptyBody}>{children}</div>
+    </div>
+  );
+}
+
+export function AssessmentLoading({ label = 'Loading…' }) {
+  return (
+    <div className={s.loading} role="status" aria-live="polite" aria-busy="true">
+      <span className={s.loadingSpinner} aria-hidden />
+      <span>{label}</span>
+    </div>
+  );
 }
 
 export function BtnPrimary({ className = '', type = 'button', ...rest }) {

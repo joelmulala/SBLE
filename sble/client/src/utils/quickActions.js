@@ -2,7 +2,8 @@ export function getQuickActions({ isAdmin, isLecturer, firstCourseId, hasLiveSes
   if (isAdmin) {
     return [
       { id: 'users', label: 'Manage users', description: 'Accounts and roles', to: '/users', primary: true },
-      { id: 'courses', label: 'Review courses', description: 'Catalog and assignments', to: '/lecturer/courses' },
+      { id: 'enrollment', label: 'Enrollment', description: 'Roster and course access', to: '/lecturer/enrollment' },
+      { id: 'courses', label: 'Course catalog', description: 'Programs and structure', to: '/lecturer/courses' },
       { id: 'live', label: 'Live classrooms', description: 'Active sessions', to: '/rooms', highlight: hasLiveSession }
     ];
   }

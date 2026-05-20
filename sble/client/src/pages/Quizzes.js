@@ -1,15 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import api from '../config/api';
-import { validateQuizQuestionsForPublishClient, buildPublishReadiness, totalDurationMinutesFromForm } from '../utils/quizIntegrity';
+import { buildPublishReadiness, totalDurationMinutesFromForm } from '../utils/quizIntegrity';
 import {
   resolveCourseAccessMessage,
   getStudentQuizUiState,
   useAssessmentRoles
 } from '../assessment';
+import { computeStudentQuizSummary } from '../assessment/quizStudentWorkflow';
+import StudentQuizCard from '../components/quizzes/StudentQuizCard';
 import {
-  AssessmentShell,
-  AssessmentPageHeader,
   AssessmentCard,
   AssessmentSectionTitle,
   AssessmentMeta,
@@ -30,11 +30,22 @@ import {
   SelectInput,
   QueueItem
 } from '../components/assessment/AssessmentPrimitives';
-import CoursePageFrame from '../components/workspace/CoursePageFrame';
+import AssessmentWorkspace from '../components/workspace/AssessmentWorkspace';
+import {
+  PageActions,
+  Panel,
+  Button,
+  SearchInput,
+  LoadingState,
+  EmptyState,
+  KpiStatGrid,
+  StatCard
+} from '../components/ui';
+import StatusPill from '../components/ui/StatusPill';
 import QuizTakingWorkspace from '../components/quizzes/QuizTakingWorkspace';
 import PublishValidationPanel from '../components/quizzes/PublishValidationPanel';
-import QuizEmptyIllustration from '../components/quizzes/QuizEmptyIllustration';
 import qstyles from '../components/quizzes/AssessmentQuiz.module.css';
+import ui from '../components/ui/system.module.css';
 import s from '../components/assessment/AssessmentPrimitives.module.css';
 
 function computeQuizParticipantStats(participants = []) {
@@ -102,6 +113,9 @@ export default function Quizzes() {
   const [loadingQuestions, setLoadingQuestions] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [tableQuery, setTableQuery] = useState('');
+  const [publishBlockByQuizId, setPublishBlockByQuizId] = useState({});
+  const [publishingQuizId, setPublishingQuizId] = useState(null);
 
   const draftQuizId = searchParams.get('draftQuizId');
   const createMode = searchParams.get('create') === '1';
@@ -339,22 +353,36 @@ export default function Quizzes() {
 
   const publishQuiz = async (quizId) => {
     setError('');
+    setPublishBlockByQuizId((prev) => {
+      const next = { ...prev };
+      delete next[quizId];
+      return next;
+    });
+    setPublishingQuizId(quizId);
     try {
+      const quiz = quizzes.find((item) => item.id === quizId);
       const qRes = await api.get(`/quizzes/${quizId}/questions`);
       const list = Array.isArray(qRes.data) ? qRes.data : [];
-      const check = validateQuizQuestionsForPublishClient(list);
-      if (!check.valid) {
-        setError(`Cannot publish until fixed: ${check.errors.join(' ')}`);
+      const readiness = buildPublishReadiness(list, quiz ? {
+        title: quiz.title,
+        time_limit_minutes: quiz.time_limit_minutes,
+        duration_hours: 0,
+        duration_minutes: quiz.time_limit_minutes ?? 0
+      } : null);
+      if (!readiness.valid) {
+        setPublishBlockByQuizId((prev) => ({ ...prev, [quizId]: readiness.errors }));
         return;
       }
       const res = await api.patch(`/quizzes/${quizId}/publish`, {});
-      setQuizzes((prev) => prev.map((quiz) => (quiz.id === quizId ? { ...quiz, ...res.data, is_published: true } : quiz)));
+      setQuizzes((prev) => prev.map((item) => (item.id === quizId ? { ...item, ...res.data, is_published: true } : item)));
     } catch (err) {
       const payload = err?.response?.data;
-      const msg = Array.isArray(payload?.validation_errors)
-        ? payload.validation_errors.join(' ')
-        : (payload?.error || 'Failed to publish quiz.');
-      setError(msg);
+      const errors = Array.isArray(payload?.validation_errors)
+        ? payload.validation_errors
+        : [payload?.error || 'Unable to publish this quiz. Review the question bank and try again.'];
+      setPublishBlockByQuizId((prev) => ({ ...prev, [quizId]: errors }));
+    } finally {
+      setPublishingQuizId(null);
     }
   };
 
@@ -442,9 +470,20 @@ export default function Quizzes() {
     }
   };
 
+  const filteredQuizzes = useMemo(() => {
+    const q = tableQuery.trim().toLowerCase();
+    if (!q) return quizzes;
+    return quizzes.filter((quiz) => quiz.title.toLowerCase().includes(q));
+  }, [quizzes, tableQuery]);
+
+  const studentSummary = useMemo(() => {
+    if (!isStudent || !quizzes.length) return null;
+    return computeStudentQuizSummary(quizzes, quizAvailabilityById);
+  }, [isStudent, quizzes, quizAvailabilityById]);
+
   if (activeQuiz) {
     return (
-      <AssessmentShell>
+      <div className={qstyles.attemptShell}>
         <QuizTakingWorkspace
           activeQuiz={activeQuiz}
           answers={answers}
@@ -454,36 +493,51 @@ export default function Quizzes() {
           submitting={submitting}
           setSubmitting={setSubmitting}
           setError={setError}
+          error={error}
           updateQuizAttempt={updateQuizAttempt}
           onExit={() => {
             setActiveQuiz(null);
             setResult(null);
             setAnswers({});
+            setError('');
           }}
         />
-      </AssessmentShell>
+      </div>
     );
   }
   return (
-    <AssessmentShell wide={isLecturer}>
-      <CoursePageFrame courseId={courseId} pageTitle="Quizzes">
-      <AssessmentPageHeader
-        kicker={isLecturer ? 'Teaching · quizzes' : 'Learning · quizzes'}
-        title="Quizzes"
-        lead={
-          isLecturer
-            ? 'Configure timing, build the question bank, publish when validated, and review attempt activity for this course.'
-            : 'Start or resume timed attempts here. Availability, windows, and scores follow your instructor’s rules.'
-        }
-        toolbar={
-          isLecturer && !creating ? (
-            <BtnPrimary type="button" onClick={() => setCreating(true)}>New quiz</BtnPrimary>
-          ) : null
-        }
+    <AssessmentWorkspace courseId={courseId}>
+      <p className={ui.lead}>
+        {isLecturer
+          ? 'Configure timing, build the question bank, publish when validated, and review attempt activity for this course.'
+          : 'Start or resume timed attempts here. Availability, windows, and scores follow your instructor’s rules.'}
+      </p>
+
+      <PageActions
+        search={(
+          <SearchInput
+            placeholder="Search quizzes…"
+            value={tableQuery}
+            onChange={(e) => setTableQuery(e.target.value)}
+            aria-label="Search quizzes"
+          />
+        )}
+        actions={isLecturer && !creating ? (
+          <Button type="button" variant="primary" onClick={() => setCreating(true)}>New quiz</Button>
+        ) : null}
       />
 
-      {loading ? <AssessmentMeta>Loading quizzes…</AssessmentMeta> : null}
-      {error ? <AssessmentAlert type="error">{error}</AssessmentAlert> : null}
+      {loading ? <LoadingState label="Loading quizzes…" /> : null}
+      {error ? <div className={`${ui.notice} ${ui.noticeError}`}>{error}</div> : null}
+
+      {studentSummary ? (
+        <KpiStatGrid>
+          <StatCard label="Available" value={studentSummary.available} hint="Start or continue now" />
+          <StatCard label="Upcoming" value={studentSummary.upcoming} hint="Not open yet" />
+          <StatCard label="Submitted" value={studentSummary.submitted} hint="Awaiting score" />
+          <StatCard label="Graded" value={studentSummary.graded} hint="Results recorded" />
+        </KpiStatGrid>
+      ) : null}
 
       {isLecturer && creating && (
         <AssessmentCard>
@@ -497,7 +551,7 @@ export default function Quizzes() {
                 <Field label="Quiz title">
                   <TextInput value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Quiz title" required />
                 </Field>
-                <div className={s.flexRow} style={{ alignItems: 'flex-end', gap: '1rem' }}>
+                <div className={`${s.flexRow} ${ui.durationRow}`}>
                   <Field label="Hours">
                     <TextInput
                       type="number"
@@ -505,7 +559,7 @@ export default function Quizzes() {
                       max={336}
                       value={form.duration_hours}
                       onChange={(e) => setForm({ ...form, duration_hours: e.target.value })}
-                      style={{ maxWidth: '6.5rem' }}
+                      className={ui.durationField}
                     />
                   </Field>
                   <Field label="Minutes">
@@ -515,7 +569,7 @@ export default function Quizzes() {
                       max={59}
                       value={form.duration_minutes}
                       onChange={(e) => setForm({ ...form, duration_minutes: e.target.value })}
-                      style={{ maxWidth: '6.5rem' }}
+                      className={ui.durationField}
                     />
                   </Field>
                   <AssessmentMeta strong>Total: {totalDurationMinutesFromForm(form)} min</AssessmentMeta>
@@ -535,20 +589,18 @@ export default function Quizzes() {
               <AssessmentMeta>Loading question editor…</AssessmentMeta>
             ) : (
               questions.map((q, i) => (
-                <AssessmentCard key={q.id || i} muted>
-                  <CardTitleRow
-                    title={`Question ${i + 1}`}
-                    aside={
-                      <BtnDanger type="button" onClick={() => deleteQuestion(i)}>
-                        Remove
-                      </BtnDanger>
-                    }
-                  />
+                <div key={q.id || i} className={qstyles.questionEditorBlock}>
+                  <div className={qstyles.questionEditorHeader}>
+                    <h4 className={qstyles.questionEditorTitle}>Question {i + 1}</h4>
+                    <BtnDanger type="button" onClick={() => deleteQuestion(i)}>
+                      Remove
+                    </BtnDanger>
+                  </div>
                   <Field label="Prompt">
                     <TextArea
                       value={q.question_text}
                       onChange={(e) => updateQuestion(i, 'question_text', e.target.value)}
-                      placeholder="Question text"
+                      placeholder="Enter the question students will answer"
                       rows={2}
                     />
                   </Field>
@@ -560,40 +612,50 @@ export default function Quizzes() {
                         <option value="short_answer">Short answer</option>
                       </SelectInput>
                     </Field>
-                    <Field label="Marks">
+                    <Field label="Points">
                       <TextInput
                         type="number"
                         min={1}
                         value={q.marks}
                         onChange={(e) => updateQuestion(i, 'marks', e.target.value)}
-                        style={{ maxWidth: '6.5rem' }}
+                        className={ui.durationField}
                       />
                     </Field>
                   </div>
-                  {q.question_type === 'mcq' && ensureFourOptions(q.options).map((opt, oi) => (
-                    <Field key={oi} label={`Option ${oi + 1}`}>
-                      <TextInput
-                        value={opt}
-                        onChange={(e) => {
-                          const opts = ensureFourOptions(q.options);
-                          opts[oi] = e.target.value;
-                          updateQuestion(i, 'options', opts);
-                        }}
-                        placeholder={`Option ${oi + 1}`}
-                      />
-                    </Field>
-                  ))}
+                  {q.question_type === 'mcq' ? (
+                    <div className={qstyles.questionOptionsGrid}>
+                      {ensureFourOptions(q.options).map((opt, oi) => (
+                        <Field key={oi} label={`Option ${String.fromCharCode(65 + oi)}`}>
+                          <TextInput
+                            value={opt}
+                            onChange={(e) => {
+                              const opts = ensureFourOptions(q.options);
+                              opts[oi] = e.target.value;
+                              updateQuestion(i, 'options', opts);
+                            }}
+                            placeholder={`Answer choice ${String.fromCharCode(65 + oi)}`}
+                          />
+                        </Field>
+                      ))}
+                    </div>
+                  ) : null}
                   {q.question_type === 'true_false' ? (
-                    <p className={s.inlineHint}>Students choose between True and False.</p>
+                    <p className={s.inlineHint}>Students choose True or False. Set the correct answer below.</p>
                   ) : null}
                   <Field label={q.question_type === 'short_answer' ? 'Expected answer' : 'Correct answer'}>
                     <TextInput
                       value={q.correct_answer}
                       onChange={(e) => updateQuestion(i, 'correct_answer', e.target.value)}
-                      placeholder={q.question_type === 'short_answer' ? 'Expected answer' : 'Correct answer'}
+                      placeholder={
+                        q.question_type === 'true_false'
+                          ? 'True or False'
+                          : q.question_type === 'short_answer'
+                            ? 'Expected short answer'
+                            : 'Must match one option exactly'
+                      }
                     />
                   </Field>
-                </AssessmentCard>
+                </div>
               ))
             )}
 
@@ -619,57 +681,76 @@ export default function Quizzes() {
         </AssessmentCard>
       )}
 
-      <AssessmentSectionTitle>Course quizzes</AssessmentSectionTitle>
-
+      <Panel title="Course quizzes">
       <AssessmentList>
-        {quizzes.map((quiz) => {
+        {filteredQuizzes.map((quiz) => {
           const participants = participantsByQuiz[quiz.id] || [];
           const isParticipantsOpen = openParticipantsQuizId === quiz.id;
-          const studentState = getStudentQuizUiState(quiz, quizAvailabilityById[quiz.id]);
+
+          if (!isLecturer) {
+            return (
+              <li key={quiz.id}>
+                <StudentQuizCard
+                  quiz={quiz}
+                  availability={quizAvailabilityById[quiz.id]}
+                  onOpenQuiz={openQuiz}
+                />
+              </li>
+            );
+          }
 
           return (
             <li key={quiz.id}>
               <AssessmentCard as="article">
                 <CardTitleRow
                   title={quiz.title}
-                  aside={
-                    <div className={s.flexRow}>
-                      {isLecturer ? (
-                        <StatusBadge variant={quiz.is_published ? 'success' : 'warning'}>
-                          {quiz.is_published ? 'Published' : 'Draft'}
-                        </StatusBadge>
-                      ) : (
-                        <StatusBadge variant={studentState.badgeVariant}>{studentState.label}</StatusBadge>
-                      )}
-                    </div>
-                  }
+                  aside={(
+                    <StatusPill variant={quiz.is_published ? 'active' : 'info'}>
+                      {quiz.is_published ? 'Published' : 'Draft'}
+                    </StatusPill>
+                  )}
                 />
 
-                {isLecturer ? (
-                  <AssessmentToolbar>
-                    {!quiz.is_published ? (
-                      <BtnAccent
-                        type="button"
-                        onClick={() => publishQuiz(quiz.id)}
-                        title="All questions must pass integrity checks before publishing"
-                      >
-                        Publish
-                      </BtnAccent>
-                    ) : null}
-                    <BtnSecondary type="button" onClick={() => openQuestionManager(quiz.id)}>Manage questions</BtnSecondary>
-                    <BtnSecondary type="button" onClick={() => toggleParticipants(quiz.id)}>
-                      {isParticipantsOpen ? 'Hide attempts' : 'View attempts'}
-                    </BtnSecondary>
-                  </AssessmentToolbar>
-                ) : (
-                  <AssessmentToolbar>
-                    <BtnPrimary type="button" onClick={() => openQuiz(quiz.id)} disabled={!studentState.canStart}>
-                      {studentState.buttonLabel}
-                    </BtnPrimary>
-                  </AssessmentToolbar>
-                )}
+                <div className={qstyles.quizMetaRow}>
+                  <span>
+                    Duration: {quiz.time_limit_minutes ?? '—'} min
+                  </span>
+                  {quiz.is_published ? (
+                    <span>Live for students</span>
+                  ) : (
+                    <span>Not yet published</span>
+                  )}
+                </div>
 
-                {isLecturer && isParticipantsOpen ? (
+                {publishBlockByQuizId[quiz.id]?.length ? (
+                  <div className={qstyles.validationBlockedCompact} role="alert">
+                    <p className={qstyles.validationHeading}>Publishing is blocked until the following are resolved:</p>
+                    <ul className={qstyles.validationList}>
+                      {publishBlockByQuizId[quiz.id].map((err) => (
+                        <li key={err}>{err}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                <AssessmentToolbar>
+                  {!quiz.is_published ? (
+                    <BtnAccent
+                      type="button"
+                      onClick={() => publishQuiz(quiz.id)}
+                      disabled={publishingQuizId === quiz.id}
+                      title="All questions must pass validation before publishing"
+                    >
+                      {publishingQuizId === quiz.id ? 'Validating…' : 'Publish quiz'}
+                    </BtnAccent>
+                  ) : null}
+                  <BtnSecondary type="button" onClick={() => openQuestionManager(quiz.id)}>Manage questions</BtnSecondary>
+                  <BtnSecondary type="button" onClick={() => toggleParticipants(quiz.id)}>
+                    {isParticipantsOpen ? 'Hide attempts' : 'View attempts'}
+                  </BtnSecondary>
+                </AssessmentToolbar>
+
+                {isParticipantsOpen ? (
                   <div className={s.queue}>
                     <p className={s.queueTitle}>Attempt monitoring</p>
                     {participants.length > 0 ? (
@@ -695,10 +776,7 @@ export default function Quizzes() {
                     {loadingParticipantsId === quiz.id ? (
                       <AssessmentMeta>Loading participants…</AssessmentMeta>
                     ) : participants.length === 0 ? (
-                      <div style={{ textAlign: 'center' }}>
-                        <QuizEmptyIllustration />
-                        <AssessmentEmpty>No attempts recorded yet.</AssessmentEmpty>
-                      </div>
+                      <EmptyState message="No attempts recorded yet." />
                     ) : (
                       participants.map((entry) => (
                         <QueueItem key={entry.id}>
@@ -719,14 +797,20 @@ export default function Quizzes() {
           );
         })}
       </AssessmentList>
+      </Panel>
 
       {!loading && quizzes.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 'var(--space-6)' }}>
-          <QuizEmptyIllustration />
-          <AssessmentEmpty>No quizzes in this course yet.</AssessmentEmpty>
-        </div>
+        <EmptyState
+          title={isLecturer ? 'No quizzes created' : 'No quizzes available'}
+          message={isLecturer
+            ? 'Create a quiz with validated questions and a duration before publishing to students.'
+            : 'Quizzes will appear here when your lecturer publishes them for this course.'}
+        />
       ) : null}
-      </CoursePageFrame>
-    </AssessmentShell>
+
+      {!loading && isStudent && quizzes.length > 0 && filteredQuizzes.length === 0 ? (
+        <EmptyState message="No quizzes match your search." />
+      ) : null}
+    </AssessmentWorkspace>
   );
 }

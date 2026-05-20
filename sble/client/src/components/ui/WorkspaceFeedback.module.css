@@ -1,0 +1,163 @@
+/* Deployment-grade loading, empty, and gate states */
+
+.gate {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-8) var(--space-4);
+  background: var(--color-bg);
+}
+
+.gateCard {
+  width: min(22rem, 100%);
+  padding: var(--space-8) var(--space-6);
+  text-align: center;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  background-image: var(--surface-elevated);
+  box-shadow: var(--shadow-soft);
+}
+
+.gateTitle {
+  margin: var(--space-4) 0 var(--space-2);
+  font-family: var(--font-academic);
+  font-size: var(--fs-2);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.gateLead {
+  margin: 0;
+  font-size: var(--fs-0);
+  line-height: var(--lh-loose);
+  color: var(--color-text-muted);
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  font-size: var(--fs-0);
+}
+
+.loadingCentered {
+  justify-content: center;
+}
+
+.spinner {
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--color-brand) 22%, var(--color-border));
+  border-top-color: var(--color-brand);
+  animation: wk-spin 0.75s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes wk-spin {
+  to { transform: rotate(360deg); }
+}
+
+.skeletonGroup {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.skeletonLine {
+  height: 0.75rem;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-muted) 0%,
+    color-mix(in srgb, var(--color-border) 55%, var(--color-surface-muted)) 50%,
+    var(--color-surface-muted) 100%
+  );
+  background-size: 200% 100%;
+  animation: wk-shimmer 1.2s ease-in-out infinite;
+}
+
+.skeletonLineWide { width: 92%; }
+.skeletonLineMid { width: 68%; }
+.skeletonLineShort { width: 42%; }
+
+@keyframes wk-shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+.empty {
+  padding: var(--space-6) var(--space-5);
+  text-align: center;
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--color-border-strong);
+  background: color-mix(in srgb, var(--color-surface-muted) 80%, #fff);
+}
+
+.emptyTitle {
+  margin: 0 0 var(--space-2);
+  font-size: var(--fs-1);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.emptyMessage {
+  margin: 0;
+  font-size: var(--fs-0);
+  line-height: var(--lh-loose);
+  color: var(--color-text-muted);
+}
+
+.emptyAction {
+  margin-top: var(--space-4);
+}
+
+.error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid #fecdca;
+  background: #fef3f2;
+  color: #b42318;
+  font-size: var(--fs-0);
+}
+
+.retryBtn {
+  appearance: none;
+  border: 1px solid #fecdca;
+  background: #fff;
+  color: #b42318;
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.75rem;
+  font-size: var(--fs-00);
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.retryBtn:hover {
+  background: #fff1f2;
+}
+
+.retryBtn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner,
+  .skeletonLine {
+    animation: none;
+  }
+}

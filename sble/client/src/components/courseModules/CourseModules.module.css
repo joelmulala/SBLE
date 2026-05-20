@@ -30,6 +30,19 @@
   max-width: 52rem;
 }
 
+.heroMeta {
+  margin: var(--space-3) 0 0;
+  font-size: var(--fs-0);
+  color: var(--color-text-muted);
+}
+
+.lecturerToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
 .layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 16rem;

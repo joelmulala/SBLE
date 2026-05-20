@@ -1,6 +1,9 @@
 .page {
   display: grid;
   gap: var(--space-6);
+  width: 100%;
+  min-width: 0;
+  overflow-x: clip;
 }
 
 .hero {
@@ -90,6 +93,7 @@
 .pageAdmin {
   --role-accent: #3b5bdb;
   --role-soft: #eef2ff;
+  gap: var(--space-5);
 }
 
 .pageLecturer {
@@ -306,5 +310,16 @@
 
   .heroStat:last-child {
     grid-column: 1 / -1;
+  }
+
+  .liveStrip {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .surfaceHeader,
+  .surfaceBody {
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
   }
 }

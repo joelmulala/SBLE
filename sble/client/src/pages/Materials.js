@@ -1,21 +1,20 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useKeycloak } from '../auth/AuthProvider';
 import api from '../config/api';
 import { buildFileUploadFormData, triggerBlobDownload } from '../utils/fileTransfer';
+import { Field, TextInput } from '../components/assessment/AssessmentPrimitives';
+import AssessmentWorkspace from '../components/workspace/AssessmentWorkspace';
 import {
-  AssessmentShell,
-  AssessmentPageHeader,
-  AssessmentCard,
-  AssessmentSectionTitle,
-  AssessmentAlert,
-  AssessmentEmpty,
-  AssessmentMeta,
-  BtnPrimary,
-  Field,
-  TextInput
-} from '../components/assessment/AssessmentPrimitives';
-import CoursePageFrame from '../components/workspace/CoursePageFrame';
+  PageActions,
+  Panel,
+  Button,
+  DataTable,
+  TableActions,
+  SearchInput,
+  LoadingState
+} from '../components/ui';
+import ui from '../components/ui/system.module.css';
 
 export default function Materials() {
   const { courseId } = useParams();
@@ -29,6 +28,8 @@ export default function Materials() {
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [showUpload, setShowUpload] = useState(false);
+  const [tableQuery, setTableQuery] = useState('');
 
   useEffect(() => {
     const loadMaterials = async () => {
@@ -73,6 +74,7 @@ export default function Materials() {
       setMaterials((prev) => [res.data, ...prev]);
       setFile(null);
       setTitle('');
+      setShowUpload(false);
     } catch (err) {
       setError(err?.response?.data?.error || 'Failed to upload material.');
     } finally {
@@ -84,73 +86,127 @@ export default function Materials() {
     try {
       const response = await api.get(`/materials/${materialId}/download`, { responseType: 'blob' });
       triggerBlobDownload(response, fileName || `material-${materialId}`);
-    } catch (_) {
+    } catch {
       setError('Download failed.');
     }
   };
 
+  const columns = useMemo(() => [
+    {
+      key: 'title',
+      label: 'Material',
+      render: (material) => (
+        <div className={ui.cellStack}>
+          <span className={ui.cellPrimary}>{material.title || material.file_name}</span>
+          <span className={ui.cellMuted}>{material.file_name || 'File'}</span>
+        </div>
+      )
+    },
+    {
+      key: 'uploaded',
+      label: 'Uploaded',
+      hideOnMobile: true,
+      render: (material) => (
+        <span className={ui.cellMuted}>
+          {material.created_at ? new Date(material.created_at).toLocaleString() : '—'}
+        </span>
+      )
+    },
+    {
+      key: 'actions',
+      label: 'Actions',
+      render: (material) => (
+        <TableActions>
+          <Button type="button" variant="primary" onClick={() => downloadMaterial(material.id, material.file_name)}>
+            Download
+          </Button>
+        </TableActions>
+      )
+    }
+  ], []);
+
   return (
-    <AssessmentShell>
-      <CoursePageFrame courseId={courseId} pageTitle="Materials">
-        <AssessmentPageHeader
-          kicker={isLecturer ? 'Course delivery' : 'Course study'}
-          title="Learning materials"
-          lead="Course readings and files organized with your learning path."
-        />
+    <AssessmentWorkspace courseId={courseId}>
+      <p className={ui.lead}>
+        {isLecturer
+          ? 'Upload and organize course readings, files, and resources for students.'
+          : 'Course readings and files organized with your learning path.'}
+      </p>
 
-        {loading ? <AssessmentMeta>Loading materials...</AssessmentMeta> : null}
-        {error ? <AssessmentAlert>{error}</AssessmentAlert> : null}
-
-        {isLecturer && courseId ? (
-          <AssessmentCard>
-            <AssessmentSectionTitle>Upload material</AssessmentSectionTitle>
-            <form onSubmit={handleUpload} style={{ display: 'grid', gap: 'var(--space-4)' }}>
-              <Field label="Title">
-                <TextInput value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Material title" required />
-              </Field>
-              <Field label="File">
-                <input type="file" accept=".pdf,.doc,.docx,.jpg,.png" onChange={(e) => setFile(e.target.files?.[0] || null)} required />
-              </Field>
-              <BtnPrimary type="submit" disabled={uploading}>{uploading ? 'Uploading...' : 'Upload'}</BtnPrimary>
-            </form>
-          </AssessmentCard>
-        ) : null}
-
-        {!loading && materials.length === 0 ? (
-          <AssessmentEmpty>No materials uploaded yet.</AssessmentEmpty>
-        ) : (
-          <AssessmentCard>
-            <AssessmentSectionTitle>Materials</AssessmentSectionTitle>
-            <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-              {materials.map((material) => (
-                <li
-                  key={material.id}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: 'var(--space-3)',
-                    padding: 'var(--space-3)',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-md)'
-                  }}
-                >
-                  <div>
-                    <strong>{material.title || material.file_name}</strong>
-                    <AssessmentMeta>
-                      {material.created_at ? new Date(material.created_at).toLocaleString() : ''}
-                    </AssessmentMeta>
-                  </div>
-                  <BtnPrimary type="button" onClick={() => downloadMaterial(material.id, material.file_name)}>
-                    Download
-                  </BtnPrimary>
-                </li>
-              ))}
-            </ul>
-          </AssessmentCard>
+      <PageActions
+        search={(
+          <SearchInput
+            placeholder="Search materials…"
+            value={tableQuery}
+            onChange={(e) => setTableQuery(e.target.value)}
+            aria-label="Search materials"
+          />
         )}
-      </CoursePageFrame>
-    </AssessmentShell>
+        actions={isLecturer && courseId ? (
+          <Button
+            type="button"
+            variant="primary"
+            onClick={() => setShowUpload((prev) => !prev)}
+          >
+            {showUpload ? 'Close upload' : 'Upload material'}
+          </Button>
+        ) : null}
+      />
+
+      {error ? <div className={`${ui.notice} ${ui.noticeError}`}>{error}</div> : null}
+
+      {isLecturer && showUpload && courseId ? (
+        <Panel title="Upload material">
+          <form onSubmit={handleUpload} className={ui.stackSection}>
+            <Field label="Title">
+              <TextInput value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Material title" required />
+            </Field>
+            <div className={ui.field}>
+              <label htmlFor="material-file">File</label>
+              <input
+                id="material-file"
+                type="file"
+                className={ui.input}
+                accept=".pdf,.doc,.docx,.jpg,.png"
+                onChange={(e) => setFile(e.target.files?.[0] || null)}
+                required
+              />
+            </div>
+            <div className={ui.formActions}>
+              <Button type="submit" variant="primary" disabled={uploading}>
+                {uploading ? 'Uploading…' : 'Upload'}
+              </Button>
+            </div>
+          </form>
+        </Panel>
+      ) : null}
+
+      <Panel
+        title="Course materials"
+        lead={loading ? '' : `${materials.length} file${materials.length === 1 ? '' : 's'}`}
+        flush
+      >
+        {loading ? (
+          <div className={ui.tableState}>
+            <LoadingState label="Loading materials…" />
+          </div>
+        ) : (
+          <DataTable
+            hideToolbar
+            query={tableQuery}
+            onQueryChange={setTableQuery}
+            columns={columns}
+            rows={materials}
+            rowKey={(m) => m.id}
+            searchFn={(material, q) => {
+              const hay = `${material.title} ${material.file_name}`.toLowerCase();
+              return hay.includes(q);
+            }}
+            emptyMessage="No materials uploaded yet."
+          />
+        )}
+      </Panel>
+    </AssessmentWorkspace>
   );
 }
 

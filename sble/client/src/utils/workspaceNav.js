@@ -16,6 +16,7 @@ const SEGMENT_LABELS = {
 };
 
 export function resolvePageTitle(pathname) {
+  if (pathname.includes('/lecturer/dashboard')) return 'Institutional overview';
   if (pathname.includes('/dashboard')) return 'Dashboard';
   if (pathname.match(/\/courses\/[^/]+$/)) return 'Course overview';
   if (pathname.includes('/courses')) return 'Courses';
@@ -28,17 +29,26 @@ export function resolvePageTitle(pathname) {
   if (pathname.includes('/calendar')) return 'Calendar';
   if (pathname.includes('/communications')) return 'Communication';
   if (pathname.includes('/enrollment')) return 'Enrollment';
-  if (pathname.includes('/room')) return 'Live classroom';
+  if (pathname === '/rooms') return 'Live classes';
+  if (pathname.includes('/room/')) return 'Live classroom';
   if (pathname.includes('/users')) return 'User management';
   return 'Workspace';
 }
 
-export function buildBreadcrumbs(pathname, { isLecturer, courseTitle } = {}) {
+export function buildBreadcrumbs(pathname, { isLecturer, isAdmin = false, courseTitle } = {}) {
   const crumbs = [];
   const prefix = isLecturer ? '/lecturer' : '/student';
   const dashTo = isLecturer ? '/lecturer/dashboard' : '/student/dashboard';
+  const dashLabel = isAdmin ? 'Institutional overview' : 'Dashboard';
 
-  crumbs.push({ label: 'Dashboard', to: dashTo });
+  const rootOnly = [{ label: dashLabel, to: dashTo }];
+
+  if (pathname === '/users') return rootOnly;
+  if (pathname.match(/^\/lecturer\/courses\/?$/)) return rootOnly;
+  if (pathname.match(/^\/lecturer\/enrollment\/?$/)) return rootOnly;
+  if (pathname === '/rooms') return rootOnly;
+
+  crumbs.push({ label: dashLabel, to: dashTo });
 
   const courseMatch = pathname.match(/\/courses\/([^/]+)(?:\/([^/]+))?/);
   if (courseMatch) {
@@ -72,6 +82,11 @@ export function buildBreadcrumbs(pathname, { isLecturer, courseTitle } = {}) {
     return crumbs;
   }
 
+  if (pathname.includes('/enrollment')) {
+    crumbs.push({ label: 'Enrollment', to: '/lecturer/enrollment' });
+    return crumbs;
+  }
+
   if (pathname.includes('/rooms') || pathname.includes('/room/')) {
     crumbs.push({ label: 'Live classes', to: '/rooms' });
     return crumbs;
@@ -80,6 +95,10 @@ export function buildBreadcrumbs(pathname, { isLecturer, courseTitle } = {}) {
   if (pathname.includes('/users')) {
     crumbs.push({ label: 'User management', to: '/users' });
     return crumbs;
+  }
+
+  if (isAdmin && pathname.includes('/lecturer/dashboard')) {
+    return [{ label: dashLabel, to: dashTo }];
   }
 
   return crumbs;

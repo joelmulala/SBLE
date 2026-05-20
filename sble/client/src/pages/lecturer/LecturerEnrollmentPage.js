@@ -1,18 +1,24 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useKeycloak } from '../../auth/AuthProvider';
 import api from '../../config/api';
+import {
+  WorkspacePageShell,
+  PageActions,
+  DataTable,
+  TableActions,
+  Panel,
+  Button,
+  ConfirmDialog,
+  SearchInput,
+  FilterSelect
+} from '../../components/ui';
 import EnrollmentPanel from '../../components/lecturer/EnrollmentPanel';
-
-const cardStyle = {
-  background: '#fff',
-  borderRadius: 10,
-  padding: 16,
-  boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
-  border: '1px solid #e7ecf5'
-};
+import ui from '../../components/ui/system.module.css';
 
 export default function LecturerEnrollmentPage() {
   const navigate = useNavigate();
+  const { keycloak } = useKeycloak();
   const { courseId } = useParams();
   const [courses, setCourses] = useState([]);
   const [selectedCourseId, setSelectedCourseId] = useState(courseId || '');
@@ -21,6 +27,8 @@ export default function LecturerEnrollmentPage() {
   const [loadingEnrollments, setLoadingEnrollments] = useState(false);
   const [error, setError] = useState('');
   const [removingId, setRemovingId] = useState(null);
+  const [confirm, setConfirm] = useState(null);
+  const [rosterQuery, setRosterQuery] = useState('');
 
   useEffect(() => {
     setSelectedCourseId(courseId || '');
@@ -84,11 +92,9 @@ export default function LecturerEnrollmentPage() {
     navigate(`/lecturer/courses/${nextCourseId}/enrollment`);
   };
 
-  const handleRemove = async (entry) => {
+  const runRemove = async (entry) => {
     const studentIdentifier = entry.student?.student_id || entry.student_id;
-    if (!selectedCourseId || !studentIdentifier) {
-      return;
-    }
+    if (!selectedCourseId || !studentIdentifier) return;
 
     setRemovingId(entry.id);
     setError('');
@@ -102,116 +108,144 @@ export default function LecturerEnrollmentPage() {
     }
   };
 
-  return (
-    <div>
-      <h2>Enrollment Management</h2>
-      <p style={{ color: '#666', marginTop: 6 }}>Select a course to manage enrolled students.</p>
-
-      <div style={{ ...cardStyle, marginTop: 18 }}>
-        <label htmlFor="enrollment-course-selector" style={{ display: 'block', fontWeight: 600, marginBottom: 8 }}>
-          Course Selector
-        </label>
-        <select
-          id="enrollment-course-selector"
-          value={selectedCourseId}
-          onChange={handleCourseChange}
-          style={{ width: '100%', maxWidth: 360, padding: '10px 12px', borderRadius: 8, border: '1px solid #d0d5dd', background: '#fff' }}
-        >
-          <option value="">Select course</option>
-          {courses.map((course) => (
-            <option key={course.id} value={course.id}>{course.title}</option>
-          ))}
-        </select>
-        {loadingCourses && <p style={{ marginTop: 10, color: '#666' }}>Loading courses...</p>}
-      </div>
-
-      {error && <p style={{ color: '#c0392b', marginTop: 12 }}>{error}</p>}
-
-      {!selectedCourseId && !loadingCourses && (
-        <div style={{ ...cardStyle, marginTop: 18 }}>
-          <p style={{ margin: 0, color: '#555' }}>Please select a course to view and manage enrollments.</p>
+  const columns = [
+    {
+      key: 'studentId',
+      label: 'Student ID',
+      render: (entry) => entry.student?.student_id || entry.student_id || '—'
+    },
+    {
+      key: 'name',
+      label: 'Name',
+      render: (entry) => (
+        <div className={ui.cellStack}>
+          <span className={ui.cellPrimary}>
+            {entry.student?.full_name || entry.student?.email || 'Unknown'}
+          </span>
+          <span className={ui.cellMuted}>{entry.student?.email || ''}</span>
         </div>
-      )}
+      )
+    },
+    {
+      key: 'program',
+      label: 'Program',
+      hideOnMobile: true,
+      render: (entry) => entry.student?.program || '—'
+    },
+    {
+      key: 'year',
+      label: 'Year',
+      hideOnMobile: true,
+      render: (entry) => entry.student?.year_of_study || '—'
+    },
+    {
+      key: 'mode',
+      label: 'Mode',
+      hideOnMobile: true,
+      render: (entry) => entry.student?.mode || '—'
+    },
+    {
+      key: 'actions',
+      label: 'Actions',
+      render: (entry) => (
+        <TableActions>
+          <Button
+            type="button"
+            variant="danger"
+            disabled={removingId === entry.id}
+            onClick={() => setConfirm({
+              title: 'Remove enrollment',
+              message: `Remove ${entry.student?.full_name || 'this student'} from ${selectedCourseName}?`,
+              danger: true,
+              onConfirm: () => {
+                setConfirm(null);
+                runRemove(entry);
+              }
+            })}
+          >
+            {removingId === entry.id ? 'Removing…' : 'Remove'}
+          </Button>
+        </TableActions>
+      )
+    }
+  ];
 
-      {selectedCourseId && (
+  return (
+    <WorkspacePageShell lead="Select a course, add students, and maintain roster access.">
+      <PageActions
+        search={selectedCourseId ? (
+          <SearchInput
+            placeholder="Search roster…"
+            value={rosterQuery}
+            onChange={(e) => setRosterQuery(e.target.value)}
+            aria-label="Search enrolled students"
+          />
+        ) : (
+          <span className={ui.cellMuted}>Select a course to search the roster.</span>
+        )}
+        filters={(
+          <FilterSelect
+            id="enrollment-course-selector"
+            className={ui.filterSelectWide}
+            value={selectedCourseId}
+            onChange={handleCourseChange}
+            disabled={loadingCourses}
+            aria-label="Course for enrollment"
+          >
+            <option value="">Select a course</option>
+            {courses.map((course) => (
+              <option key={course.id} value={course.id}>{course.title}</option>
+            ))}
+          </FilterSelect>
+        )}
+      />
+
+      {error ? <div className={`${ui.notice} ${ui.noticeError}`}>{error}</div> : null}
+
+      {loadingCourses ? <p className={ui.emptyHint}>Loading courses…</p> : null}
+
+      {!selectedCourseId && !loadingCourses ? (
+        <p className={ui.emptyHint}>Choose a course to manage enrollments.</p>
+      ) : null}
+
+      {selectedCourseId ? (
         <>
-          <div style={{ marginTop: 20 }}>
-            <EnrollmentPanel courseId={selectedCourseId} onEnrollmentChange={() => fetchEnrollments(selectedCourseId)} />
-          </div>
+          <EnrollmentPanel
+            courseId={selectedCourseId}
+            onEnrollmentChange={() => fetchEnrollments(selectedCourseId)}
+          />
 
-          <div style={{ ...cardStyle, marginTop: 18, overflowX: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-              <strong>{selectedCourseName} Enrollments</strong>
-              <span style={{ color: '#666', fontSize: '0.9rem' }}>{enrollments.length} student{enrollments.length === 1 ? '' : 's'}</span>
-            </div>
-
-            {loadingEnrollments ? (
-              <p style={{ color: '#666', margin: 0 }}>Loading enrolled students...</p>
-            ) : enrollments.length === 0 ? (
-              <p style={{ color: '#888', margin: 0 }}>No students enrolled yet.</p>
-            ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr>
-                    <th style={headerCellStyle}>Student ID</th>
-                    <th style={headerCellStyle}>Name</th>
-                    <th style={headerCellStyle}>Program</th>
-                    <th style={headerCellStyle}>Year</th>
-                    <th style={headerCellStyle}>Mode</th>
-                    <th style={headerCellStyle}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {enrollments.map((entry) => (
-                    <tr key={entry.id}>
-                      <td style={cellStyle}>{entry.student?.student_id || entry.student_id || '—'}</td>
-                      <td style={cellStyle}>{entry.student?.full_name || entry.student?.email || 'Unknown student'}</td>
-                      <td style={cellStyle}>{entry.student?.program || '—'}</td>
-                      <td style={cellStyle}>{entry.student?.year_of_study || '—'}</td>
-                      <td style={cellStyle}>{entry.student?.mode || '—'}</td>
-                      <td style={cellStyle}>
-                        <button
-                          type="button"
-                          onClick={() => handleRemove(entry)}
-                          disabled={removingId === entry.id}
-                          style={removeButtonStyle}
-                        >
-                          {removingId === entry.id ? 'Removing...' : 'Remove'}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
+          <Panel
+            title={selectedCourseName}
+            lead={`${enrollments.length} student${enrollments.length === 1 ? '' : 's'} enrolled`}
+            flush
+          >
+            <DataTable
+              hideToolbar
+              query={rosterQuery}
+              onQueryChange={setRosterQuery}
+              columns={columns}
+              rows={enrollments}
+              rowKey={(e) => e.id}
+              loading={loadingEnrollments}
+              searchFn={(entry, q) => {
+                const hay = `${entry.student?.full_name} ${entry.student?.email} ${entry.student?.student_id}`.toLowerCase();
+                return hay.includes(q);
+              }}
+              emptyMessage="No students enrolled yet."
+            />
+          </Panel>
         </>
-      )}
-    </div>
+      ) : null}
+
+      <ConfirmDialog
+        open={Boolean(confirm)}
+        title={confirm?.title}
+        message={confirm?.message}
+        danger={confirm?.danger}
+        onConfirm={confirm?.onConfirm}
+        onCancel={() => setConfirm(null)}
+      />
+    </WorkspacePageShell>
   );
 }
-
-const headerCellStyle = {
-  textAlign: 'left',
-  padding: '10px 12px',
-  borderBottom: '1px solid #e5e7eb',
-  color: '#475467',
-  fontSize: '0.85rem'
-};
-
-const cellStyle = {
-  padding: '10px 12px',
-  borderBottom: '1px solid #f2f4f7',
-  color: '#344054',
-  fontSize: '0.9rem'
-};
-
-const removeButtonStyle = {
-  background: '#fff',
-  color: '#b42318',
-  border: '1px solid #fecdca',
-  borderRadius: 6,
-  padding: '6px 10px',
-  cursor: 'pointer',
-  fontWeight: 600
-};

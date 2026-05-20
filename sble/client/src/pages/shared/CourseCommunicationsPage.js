@@ -1,18 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import api from '../../config/api';
-import {
-  AssessmentShell,
-  AssessmentPageHeader,
-  AssessmentMeta,
-  AssessmentAlert
-} from '../../components/assessment/AssessmentPrimitives';
+import AssessmentWorkspace from '../../components/workspace/AssessmentWorkspace';
 import CourseCommunicationHub from '../../components/communication/CourseCommunicationHub';
-import CoursePageFrame from '../../components/workspace/CoursePageFrame';
+import ui from '../../components/ui/system.module.css';
 
 export default function CourseCommunicationsPage() {
   const { courseId } = useParams();
-  const [courseTitle, setCourseTitle] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -20,8 +14,7 @@ export default function CourseCommunicationsPage() {
     const loadCourse = async () => {
       if (!courseId) return;
       try {
-        const res = await api.get(`/courses/${courseId}`);
-        if (!cancelled) setCourseTitle(res.data?.title || '');
+        await api.get(`/courses/${courseId}`);
       } catch (err) {
         if (!cancelled) {
           setError(err?.response?.data?.error || 'Failed to load course');
@@ -33,16 +26,10 @@ export default function CourseCommunicationsPage() {
   }, [courseId]);
 
   return (
-    <AssessmentShell>
-      <CoursePageFrame courseId={courseId} pageTitle="Communication">
-        <AssessmentPageHeader
-          kicker="Course communication"
-          title={courseTitle || 'Communication'}
-          lead="Announcements, discussions, and live session notices."
-        />
-        {error ? <AssessmentAlert>{error}</AssessmentAlert> : null}
-        <CourseCommunicationHub courseId={courseId} courseTitle={courseTitle} />
-      </CoursePageFrame>
-    </AssessmentShell>
+    <AssessmentWorkspace courseId={courseId}>
+      <p className={ui.lead}>Announcements, discussions, and live session notices.</p>
+      {error ? <div className={`${ui.notice} ${ui.noticeError}`}>{error}</div> : null}
+      <CourseCommunicationHub courseId={courseId} />
+    </AssessmentWorkspace>
   );
 }

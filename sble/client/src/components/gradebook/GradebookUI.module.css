@@ -39,6 +39,11 @@
   font-weight: 600;
 }
 
+.filterChip:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
 .summaryGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
@@ -130,7 +135,14 @@
 
 .matrixScroll {
   overflow: auto;
+  -webkit-overflow-scrolling: touch;
   max-height: min(70vh, 42rem);
+  max-width: 100%;
+}
+
+.matrixScroll:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-brand) 35%, transparent);
+  outline-offset: 2px;
 }
 
 .gradeTable {
@@ -191,6 +203,16 @@
 
 .rowSelected td {
   background: var(--color-brand-soft) !important;
+}
+
+.rowClickable {
+  cursor: pointer;
+}
+
+.weightsLine {
+  margin-top: var(--space-4);
+  font-size: var(--fs-label);
+  color: var(--color-text-muted);
 }
 
 .rowAtRisk td.colStudent {
@@ -323,7 +345,10 @@
   border-radius: var(--radius-md);
   padding: var(--space-4);
   background: var(--color-surface);
-  text-decoration: none;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+  font: inherit;
   color: inherit;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
@@ -416,4 +441,197 @@
   margin: 0 0 var(--space-3);
   font-size: var(--fs-2);
   font-weight: 600;
+}
+
+/* Student gradebook presentation */
+.courseFilter {
+  min-width: 14rem;
+}
+
+.studentHero {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.studentHeroMain {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.studentHeroStats {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.studentHeroScore {
+  margin: 0;
+  font-size: var(--fs-4);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.studentHeroLabel {
+  margin: 0;
+  font-size: var(--fs-0);
+  color: var(--color-text-muted);
+}
+
+.studentHeroMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin-top: var(--space-2);
+}
+
+.courseCardTitle {
+  margin: 0 0 var(--space-2);
+  font-size: var(--fs-1);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.courseCardScore {
+  margin: 0;
+  font-size: var(--fs-3);
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.courseCardLetter {
+  margin: var(--space-1) 0 0;
+  font-size: var(--fs-0);
+  color: var(--color-text-muted);
+}
+
+.courseCardMuted {
+  margin: 0;
+  font-size: var(--fs-0);
+  color: var(--color-text-muted);
+}
+
+.tableScore {
+  font-weight: 600;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.tableScoreReleased {
+  font-weight: 700;
+  font-size: var(--fs-1);
+  color: var(--color-brand);
+  font-variant-numeric: tabular-nums;
+}
+
+.tableFeedback {
+  font-size: var(--fs-0);
+  color: var(--color-text-muted);
+  line-height: var(--lh-loose);
+  display: block;
+  max-width: 24rem;
+  white-space: pre-wrap;
+}
+
+.studentFeedback {
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-brand-soft) 50%, var(--color-surface));
+  border: 1px solid color-mix(in srgb, var(--color-brand) 20%, var(--color-border));
+}
+
+.feedbackLabel {
+  margin: 0 0 var(--space-1);
+  font-size: var(--fs-00);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-faint);
+}
+
+.feedbackBody {
+  margin: 0;
+  font-size: var(--fs-0);
+  color: var(--color-text);
+  line-height: var(--lh-loose);
+  white-space: pre-wrap;
+}
+
+.metaRows {
+  display: grid;
+  gap: 0;
+}
+
+.metaRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--fs-0);
+  color: var(--color-text-muted);
+}
+
+.metaRow:last-child {
+  border-bottom: none;
+}
+
+.metaRow span:last-child {
+  font-weight: 600;
+  color: var(--color-text);
+  text-align: right;
+}
+
+.panelMuted {
+  margin: 0;
+  font-size: var(--fs-0);
+  color: var(--color-text-muted);
+  line-height: var(--lh-loose);
+}
+
+.assessmentList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.assessmentCardAside {
+  text-align: right;
+}
+
+@media (max-width: 768px) {
+  .studentHeroMain {
+    grid-template-columns: 1fr;
+  }
+
+  .courseCards {
+    grid-template-columns: 1fr;
+  }
+
+  .tableFeedback {
+    max-width: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .studentHeroScore {
+    font-size: var(--fs-3);
+  }
+
+  .metaRow {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-1);
+  }
+
+  .metaRow span:last-child {
+    text-align: left;
+  }
 }

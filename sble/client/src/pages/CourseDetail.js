@@ -4,6 +4,7 @@ import { useKeycloak } from '../auth/AuthProvider';
 import api from '../config/api';
 import CourseViewPage from '../components/student/CourseViewPage';
 import CourseLearningHome from '../components/courseModules/CourseLearningHome';
+import AssessmentWorkspace from '../components/workspace/AssessmentWorkspace';
 
 export default function CourseDetail() {
   const params = useParams();
@@ -57,17 +58,16 @@ export default function CourseDetail() {
   };
 
   return (
-    <div className="app-page">
-      <div className="app-container">
-        <CourseLearningHome
-          courseId={courseId}
-          course={course}
-          isLecturer
-          onStartLiveRoom={handleStartLiveRoom}
-          startingLiveRoom={startingLiveRoom}
-          liveRoomError={liveRoomError}
-        />
-      </div>
-    </div>
+    <AssessmentWorkspace courseId={courseId}>
+      <CourseLearningHome
+        courseId={courseId}
+        course={course}
+        isLecturer
+        embeddedInShell
+        onStartLiveRoom={handleStartLiveRoom}
+        startingLiveRoom={startingLiveRoom}
+        liveRoomError={liveRoomError}
+      />
+    </AssessmentWorkspace>
   );
 }

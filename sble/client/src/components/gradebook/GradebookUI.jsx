@@ -1,6 +1,8 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { StatusBadge } from '../assessment/AssessmentPrimitives';
+import StatusPill from '../ui/StatusPill';
+import { getStudentGradeStatusPresentation } from './gradebookUtils';
 import {
   GRADE_STATE_LABELS,
   GRADE_STATE_VARIANT,
@@ -43,6 +45,12 @@ export function GradeStateBadge({ state, compact = false }) {
   );
 }
 
+/** Student gradebook — workspace StatusPill */
+export function GradeStatePill({ state }) {
+  const { label, variant } = getStudentGradeStatusPresentation(state);
+  return <StatusPill variant={variant}>{label}</StatusPill>;
+}
+
 export function LetterGrade({ letter, status }) {
   if (!letter) return <span className={s.cellMuted}>—</span>;
   const cls = letterVariant(status) === 'success' ? s.letterSuccess
@@ -52,10 +60,13 @@ export function LetterGrade({ letter, status }) {
 }
 
 export function TrendIndicator({ trend }) {
+  const pillVariant = trend === 'improving' ? 'active'
+    : trend === 'declining' ? 'inactive'
+      : 'neutral';
   return (
-    <StatusBadge variant={trendVariant(trend)}>
+    <StatusPill variant={pillVariant}>
       {trendLabel(trend)}
-    </StatusBadge>
+    </StatusPill>
   );
 }
 
@@ -98,14 +109,12 @@ export function GradingNavLinks({ courseId, rolePrefix = 'lecturer' }) {
   );
 }
 
-export function FeedbackPanel({ children }) {
+export function FeedbackPanel({ children, student = false }) {
   if (!children) return null;
   return (
-    <div className={s.feedbackPanel}>
-      <strong style={{ display: 'block', marginBottom: '0.35rem', fontSize: 'var(--fs-00)' }}>
-        Instructor feedback
-      </strong>
-      {children}
+    <div className={student ? s.studentFeedback : s.feedbackPanel}>
+      <p className={s.feedbackLabel}>Instructor feedback</p>
+      <p className={s.feedbackBody}>{children}</p>
     </div>
   );
 }

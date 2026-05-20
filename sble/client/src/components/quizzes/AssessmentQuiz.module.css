@@ -1,7 +1,58 @@
+/* Quiz-taking — focused attempt surface */
+.attemptShell {
+  width: 100%;
+  min-height: 100%;
+  padding: var(--space-4) var(--space-5) var(--space-6);
+  background: var(--color-surface-muted);
+}
+
 .attemptWorkspace {
-  max-width: 52rem;
+  max-width: 44rem;
   margin: 0 auto;
   width: 100%;
+  display: grid;
+  gap: var(--space-4);
+}
+
+.attemptHeader {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.attemptKicker {
+  margin: 0;
+  font-size: var(--fs-00);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-faint);
+}
+
+.attemptTitle {
+  margin: 0;
+  font-size: var(--fs-2);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--color-text);
+  line-height: var(--lh-tight);
+}
+
+.attemptLead {
+  margin: var(--space-1) 0 0;
+  font-size: var(--fs-0);
+  color: var(--color-text-muted);
+  line-height: var(--lh-loose);
+}
+
+.progressSummary {
+  margin: 0;
+  font-size: var(--fs-0);
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.progressSep {
+  color: var(--color-text-faint);
 }
 
 .timerBar {
@@ -14,40 +65,80 @@
   justify-content: space-between;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
-  margin-bottom: var(--space-4);
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-surface) 92%, var(--color-brand-soft));
+  background: var(--color-surface);
   box-shadow: var(--shadow-soft);
 }
 
+.timerBarOk {
+  border-color: color-mix(in srgb, #0f766e 25%, var(--color-border));
+}
+
+.timerBarWarn {
+  border-color: color-mix(in srgb, #b45309 30%, var(--color-border));
+  background: color-mix(in srgb, #fffbeb 40%, var(--color-surface));
+}
+
+.timerBarCritical {
+  border-color: color-mix(in srgb, #b91c1c 28%, var(--color-border));
+  background: color-mix(in srgb, #fef2f2 35%, var(--color-surface));
+}
+
+.timerMain {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.timerLabel {
+  font-size: var(--fs-00);
+  font-weight: 600;
+  color: var(--color-text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 .timerValue {
-  font-size: var(--fs-2);
+  font-size: var(--fs-3);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
+  line-height: 1.1;
 }
 
 .timerOk { color: #0f766e; }
 .timerWarn { color: #b45309; }
-.timerUrgent { color: #b91c1c; }
+.timerUrgent { color: #991b1b; }
+
+.timerAside {
+  text-align: right;
+  min-width: 0;
+}
 
 .saveStatus {
   font-size: var(--fs-00);
   color: var(--color-text-muted);
-  font-weight: 600;
+  font-weight: 500;
+}
+
+.saveStatusOk {
+  color: #047857;
+}
+
+.saveStatusError {
+  color: #b45309;
 }
 
 .progressNav {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-  margin-bottom: var(--space-4);
 }
 
 .progressDot {
-  width: 2rem;
-  height: 2rem;
+  width: 2.25rem;
+  height: 2.25rem;
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
   background: var(--color-surface);
@@ -67,23 +158,215 @@
 
 .progressDotActive {
   border-color: var(--color-brand);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-brand) 20%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-brand) 18%, transparent);
 }
 
 .questionPanel {
-  padding: var(--space-5);
+  padding: var(--space-4);
   border-radius: var(--radius-lg);
   border: 1px solid var(--color-border);
   background: var(--color-surface);
-  box-shadow: var(--shadow-soft);
+  display: grid;
+  gap: var(--space-4);
+}
+
+.questionHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.questionNumber {
+  font-size: var(--fs-00);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-faint);
+}
+
+.questionMarks {
+  font-size: var(--fs-00);
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.questionPrompt {
+  margin: 0;
+  font-size: var(--fs-1);
+  font-weight: 500;
+  color: var(--color-text);
+  line-height: var(--lh-loose);
+}
+
+.optionsGroup {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.optionRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-muted);
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+  min-height: 2.75rem;
+}
+
+.optionRow:hover {
+  border-color: color-mix(in srgb, var(--color-brand) 25%, var(--color-border));
+}
+
+.optionRowSelected {
+  border-color: color-mix(in srgb, var(--color-brand) 45%, var(--color-border));
+  background: color-mix(in srgb, var(--color-brand-soft) 55%, var(--color-surface));
+}
+
+.optionInput {
+  margin-top: 0.2rem;
+  flex-shrink: 0;
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: var(--color-brand);
+}
+
+.optionText {
+  font-size: var(--fs-0);
+  color: var(--color-text);
+  line-height: var(--lh-loose);
+  flex: 1;
+}
+
+.shortAnswerInput {
+  width: 100%;
 }
 
 .questionNav {
   display: flex;
   justify-content: space-between;
   gap: var(--space-2);
-  margin-top: var(--space-4);
   flex-wrap: wrap;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
+}
+
+.attemptFooter {
+  position: sticky;
+  bottom: 0;
+  z-index: 15;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-4);
+  margin: 0 calc(-1 * var(--space-2));
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface) 95%, transparent);
+  box-shadow: 0 -4px 20px rgba(15, 23, 42, 0.06);
+}
+
+/* Results */
+.resultHero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.resultScoreBlock {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.resultScoreLabel {
+  margin: 0;
+  font-size: var(--fs-00);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-faint);
+}
+
+.resultScoreValue {
+  margin: 0;
+  font-size: var(--fs-4);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--color-text);
+  line-height: 1;
+}
+
+.resultScoreDenom {
+  font-size: var(--fs-2);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.resultPercent {
+  margin: 0;
+  font-size: var(--fs-1);
+  font-weight: 600;
+  color: var(--color-brand);
+}
+
+.resultMessage {
+  margin: 0;
+  font-size: var(--fs-0);
+  color: var(--color-text-muted);
+  line-height: var(--lh-loose);
+}
+
+.feedbackReview {
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.feedbackReviewTitle {
+  margin: 0 0 var(--space-3);
+  font-size: var(--fs-0);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.feedbackList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.feedbackItemOk,
+.feedbackItemMiss {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-0);
+  line-height: var(--lh-loose);
+}
+
+.feedbackItemOk {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #065f46;
+}
+
+.feedbackItemMiss {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #7f1d1d;
 }
 
 .emptyIllustration {
@@ -93,10 +376,11 @@
 }
 
 .validationList {
-  margin: var(--space-3) 0 0;
-  padding-left: 1.2rem;
+  margin: var(--space-2) 0 0;
+  padding-left: 1.25rem;
   font-size: var(--fs-0);
-  color: var(--color-danger);
+  color: var(--color-text);
+  line-height: var(--lh-loose);
 }
 
 .validationOk {
@@ -107,7 +391,81 @@
   border: 1px solid #a7f3d0;
   font-size: var(--fs-00);
   color: #047857;
+  line-height: var(--lh-loose);
+}
+
+.validationBlocked {
+  margin-top: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+}
+
+.validationBlockedCompact {
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+}
+
+.validationHeading {
+  margin: 0;
+  font-size: var(--fs-0);
   font-weight: 600;
+  color: #991b1b;
+}
+
+.validationList li {
+  margin-top: 0.35rem;
+  color: #7f1d1d;
+}
+
+/* Question editor (lecturer create flow) */
+.questionEditorBlock {
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-muted);
+  display: grid;
+  gap: var(--space-3);
+}
+
+.questionEditorHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.questionEditorTitle {
+  margin: 0;
+  font-size: var(--fs-0);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.questionOptionsGrid {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.quizMetaRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  font-size: var(--fs-00);
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.formGrid {
+  display: grid;
+  gap: var(--space-4);
 }
 
 .lecturerStats {
@@ -129,14 +487,159 @@
   color: var(--color-text-muted);
 }
 
-@media (max-width: 640px) {
+/* Student quiz list cards */
+.studentQuizCard {
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  display: grid;
+  gap: var(--space-3);
+}
+
+.studentQuizCardQuiet {
+  opacity: 0.92;
+  background: var(--color-surface-muted);
+}
+
+.studentQuizTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.studentQuizTitle {
+  margin: 0;
+  font-size: var(--fs-1);
+  font-weight: 600;
+  color: var(--color-text);
+  letter-spacing: -0.01em;
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.studentQuizMeta {
+  margin: 0;
+  font-size: var(--fs-00);
+  color: var(--color-text-muted);
+  font-weight: 500;
+  line-height: var(--lh-loose);
+}
+
+.metaSep {
+  color: var(--color-text-faint);
+  user-select: none;
+}
+
+.metaEmphasis {
+  font-weight: 700;
+  color: var(--color-text);
+  font-size: var(--fs-0);
+}
+
+.studentQuizActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
+}
+
+.studentQuizHint {
+  font-size: var(--fs-00);
+  color: var(--color-text-faint);
+}
+
+@media (max-width: 768px) {
+  .studentQuizCard {
+    padding: var(--space-3);
+  }
+
+  .studentQuizTop {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .studentQuizActions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .studentQuizActions button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .studentQuizTitle {
+    font-size: var(--fs-0);
+  }
+}
+
+@media (max-width: 768px) {
+  .attemptShell {
+    padding: var(--space-3) var(--space-4) var(--space-5);
+  }
+
+  .attemptTitle {
+    font-size: var(--fs-1);
+  }
+
   .timerBar {
     flex-direction: column;
     align-items: stretch;
-    text-align: center;
+  }
+
+  .timerAside {
+    text-align: left;
+  }
+
+  .attemptFooter {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .attemptFooter button {
+    width: 100%;
+  }
+
+  .questionNav {
+    flex-direction: column;
+  }
+
+  .questionNav button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .attemptShell {
+    padding: var(--space-3);
+  }
+
+  .timerValue {
+    font-size: var(--fs-2);
   }
 
   .progressNav {
-    justify-content: center;
+    gap: var(--space-1);
+  }
+
+  .progressDot {
+    width: 2rem;
+    height: 2rem;
+  }
+
+  .optionRow {
+    padding: var(--space-3);
+    min-height: 2.5rem;
+  }
+
+  .resultScoreValue {
+    font-size: var(--fs-3);
   }
 }

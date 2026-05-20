@@ -201,6 +201,242 @@
   margin-top: 0.15rem;
 }
 
+/* Simplified assignment card (lecturer lifecycle) */
+.assignmentCardLite {
+  padding: var(--space-5);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  display: grid;
+  gap: var(--space-3);
+}
+
+.assignmentTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.assignmentTitleBlock {
+  min-width: 0;
+  flex: 1;
+}
+
+.assignmentTitle {
+  margin: 0;
+  font-size: var(--fs-1);
+  font-weight: 600;
+  color: var(--color-text);
+  letter-spacing: -0.01em;
+}
+
+.dueLabel {
+  font-size: var(--fs-00);
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.lifecycleStrip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: var(--fs-00);
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.lifecycleSep {
+  color: var(--color-text-faint);
+  user-select: none;
+}
+
+.briefRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+}
+
+.briefLabel {
+  font-size: var(--fs-00);
+  color: var(--color-text-muted);
+  min-width: 0;
+  word-break: break-word;
+}
+
+.queueToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.queueCount {
+  font-size: var(--fs-00);
+  color: var(--color-text-faint);
+  font-weight: 500;
+}
+
+.queueLoading {
+  margin: 0;
+  font-size: var(--fs-0);
+  color: var(--color-text-muted);
+}
+
+.queueStudentHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.queueScore {
+  margin: 0.25rem 0 0;
+  font-size: var(--fs-0);
+  font-weight: 700;
+  color: var(--color-brand);
+}
+
+.queueRowLate {
+  border-left: 3px solid #b45309;
+}
+
+.queueRowPending {
+  border-left: 3px solid color-mix(in srgb, var(--color-brand) 50%, transparent);
+}
+
+.queueActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.gradingIdentity {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.gradingKicker {
+  margin: 0;
+  font-size: var(--fs-00);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-faint);
+}
+
+.gradingSectionTitle {
+  margin: 0 0 var(--space-3);
+  font-size: var(--fs-0);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.gradingPreviewBlock,
+.gradingFormBlock {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.gradingPreviewHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.gradingHint {
+  margin: 0;
+  font-size: var(--fs-00);
+  color: var(--color-text-muted);
+  line-height: var(--lh-loose);
+}
+
+.scoreInput {
+  font-size: var(--fs-2);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.publishCheck {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: var(--fs-00);
+  color: var(--color-text-muted);
+  line-height: var(--lh-loose);
+  cursor: pointer;
+}
+
+.publishCheck input {
+  margin-top: 0.2rem;
+  flex-shrink: 0;
+}
+
+.emptyStateLite {
+  text-align: center;
+  padding: var(--space-6) var(--space-4);
+}
+
+@media (min-width: 1024px) {
+  .gradingPanel {
+    width: min(52rem, 100vw);
+  }
+
+  .gradingBody {
+    flex-direction: row;
+    align-items: stretch;
+    gap: var(--space-5);
+  }
+
+  .gradingPreviewBlock,
+  .gradingFormBlock {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .previewFrame {
+    min-height: 16rem;
+    max-height: 28rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .assignmentCardLite {
+    padding: var(--space-4);
+  }
+
+  .queueRow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .queueActions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .gradingHeader,
+  .gradingBody,
+  .gradingFooter {
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
+  }
+}
+
 .feedbackPanel {
   margin-top: var(--space-4);
   padding: var(--space-4);
@@ -229,6 +465,113 @@
   line-height: var(--lh-loose);
   color: var(--color-text-muted);
   white-space: pre-wrap;
+}
+
+.feedbackEmpty {
+  margin: 0;
+  font-size: var(--fs-00);
+  color: var(--color-text-muted);
+  line-height: var(--lh-loose);
+}
+
+.feedbackPanelPending {
+  margin-top: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid #fde68a;
+  background: #fffbeb;
+}
+
+/* Student assignment card */
+.studentCard {
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  display: grid;
+  gap: var(--space-3);
+}
+
+.studentCardTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.studentCardTitle {
+  margin: 0;
+  font-size: var(--fs-1);
+  font-weight: 600;
+  color: var(--color-text);
+  letter-spacing: -0.01em;
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.studentLifecycleStrip {
+  margin: 0;
+  font-size: var(--fs-00);
+  color: var(--color-text-muted);
+  font-weight: 500;
+  line-height: var(--lh-loose);
+}
+
+.lifecycleSep {
+  color: var(--color-text-faint);
+  user-select: none;
+}
+
+.studentDescription {
+  margin: 0;
+  font-size: var(--fs-0);
+  line-height: var(--lh-loose);
+  color: var(--color-text-muted);
+  white-space: pre-wrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.studentBriefRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+}
+
+.studentBriefLabel {
+  font-size: var(--fs-00);
+  color: var(--color-text-muted);
+  min-width: 0;
+  word-break: break-word;
+}
+
+.studentActions {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.studentSubmitRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.studentClosedNote {
+  margin: 0;
+  font-size: var(--fs-00);
+  color: var(--color-text-muted);
+  line-height: var(--lh-loose);
 }
 
 /* Dropzone */
@@ -464,5 +807,38 @@
   .progressTrack {
     max-width: none;
     width: 100%;
+  }
+
+  .studentCard {
+    padding: var(--space-3);
+  }
+
+  .studentCardTop {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .studentSubmitRow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .studentSubmitRow button {
+    width: 100%;
+  }
+
+  .studentBriefRow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+@media (max-width: 480px) {
+  .studentCardTitle {
+    font-size: var(--fs-0);
+  }
+
+  .feedbackGrade {
+    font-size: var(--fs-2);
   }
 }

@@ -372,10 +372,11 @@
 }
 
 .headerTitle {
-  font-size: var(--fs-2);
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-size: var(--fs-page-title);
+  font-weight: 700;
   color: var(--color-text);
-  letter-spacing: -0.015em;
+  letter-spacing: -0.02em;
   line-height: var(--lh-tight);
 }
 
@@ -433,8 +434,10 @@
 
 .content {
   overflow: auto;
+  overflow-x: clip;
   padding: var(--space-6) var(--space-6) var(--space-10);
   min-height: 0;
+  min-width: 0;
 }
 
 .popover {

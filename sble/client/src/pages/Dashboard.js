@@ -10,6 +10,8 @@ import UpcomingTasksWidget from '../components/productivity/UpcomingTasksWidget'
 import QuickActions from '../components/productivity/QuickActions';
 import WorkspaceAwareness from '../components/productivity/WorkspaceAwareness';
 import DashboardHeroIllustration from '../components/layout/DashboardHeroIllustration';
+import AdminDashboardOverview from '../components/admin/AdminDashboardOverview';
+import { Panel } from '../components/ui';
 import { calendarBasePath } from '../components/calendar/calendarUtils';
 import styles from './Dashboard.module.css';
 
@@ -37,9 +39,15 @@ export default function Dashboard() {
   const calendarPath = calendarBasePath(isLecturer);
 
   const roleHeader = {
-    admin: 'Institutional overview — users, live classes, and platform readiness.',
+    admin: 'University administration workspace — oversee users, courses, enrollment, and live instruction.',
     lecturer: 'Your teaching responsibilities, deadlines, and live sessions in one place.',
     student: 'Your learning path — deadlines, live classes, and course updates.'
+  };
+
+  const roleKicker = {
+    admin: 'Institution',
+    lecturer: 'Teaching',
+    student: 'Learning'
   };
 
   const summary = useMemo(() => {
@@ -59,27 +67,43 @@ export default function Dashboard() {
     };
   }, [items, liveSessions, tasks.length]);
 
+  if (isAdmin) {
+    return (
+      <div className={`${styles.page} ${styles.pageAdmin}`}>
+        {error ? <div className={styles.notice}>{error}</div> : null}
+        <AdminDashboardOverview />
+        <Panel title="System activity" lead="Recent deadlines and session notices across the institution.">
+          <AcademicActivityStream
+            items={items}
+            loading={loading}
+            emptyMessage="No recent institutional activity."
+          />
+        </Panel>
+      </div>
+    );
+  }
+
   return (
     <div className={`${styles.page} ${styles[`page${roleMode[0].toUpperCase()}${roleMode.slice(1)}`]}`}>
       <section className={styles.hero}>
         <div className={styles.heroContent}>
-          <span className={styles.roleKicker}>{roleMode}</span>
+          <span className={styles.roleKicker}>{roleKicker[roleMode]}</span>
           <h2 className={styles.heroTitle}>Welcome back, {name}</h2>
           <p className={styles.heroLead}>{roleHeader[roleMode]}</p>
           <div className={styles.heroStats}>
-            <div className={styles.heroStat}>
-              <span className={styles.heroStatLabel}>Active courses</span>
-              <span className={styles.heroStatValue}>{summary.courses}</span>
+              <div className={styles.heroStat}>
+                <span className={styles.heroStatLabel}>Active courses</span>
+                <span className={styles.heroStatValue}>{summary.courses}</span>
+              </div>
+              <div className={styles.heroStat}>
+                <span className={styles.heroStatLabel}>Upcoming items</span>
+                <span className={styles.heroStatValue}>{summary.deadlines}</span>
+              </div>
+              <div className={styles.heroStat}>
+                <span className={styles.heroStatLabel}>Live now</span>
+                <span className={styles.heroStatValue}>{summary.live}</span>
+              </div>
             </div>
-            <div className={styles.heroStat}>
-              <span className={styles.heroStatLabel}>Upcoming items</span>
-              <span className={styles.heroStatValue}>{summary.deadlines}</span>
-            </div>
-            <div className={styles.heroStat}>
-              <span className={styles.heroStatLabel}>Live now</span>
-              <span className={styles.heroStatValue}>{summary.live}</span>
-            </div>
-          </div>
         </div>
         <div className={styles.heroVisual} aria-hidden>
           <DashboardHeroIllustration />
@@ -101,19 +125,15 @@ export default function Dashboard() {
       ) : null}
 
       <section className={styles.productivityGrid} aria-label="Academic productivity">
-        {!isAdmin ? (
-          <>
-            <UpcomingTasksWidget
-              tasks={tasks}
-              loading={tasksLoading}
-              isLecturer={isLecturer}
-              footerLink={calendarPath}
-            />
-            <AcademicCalendarPanel title="Academic schedule" limit={6} />
-          </>
-        ) : null}
+        <UpcomingTasksWidget
+          tasks={tasks}
+          loading={tasksLoading}
+          isLecturer={isLecturer}
+          footerLink={calendarPath}
+        />
+        <AcademicCalendarPanel title="Academic schedule" limit={6} />
         <QuickActions
-          isAdmin={isAdmin}
+          isAdmin={false}
           isLecturer={isLecturer}
           firstCourseId={firstCourseId}
           hasLiveSession={liveSessions.length > 0}

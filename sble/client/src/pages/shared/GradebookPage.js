@@ -2,16 +2,16 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import api from '../../config/api';
 import { useAssessmentRoles } from '../../assessment';
-import {
-  AssessmentShell,
-  AssessmentPageHeader,
-  AssessmentAlert,
-  AssessmentEmpty,
-  AssessmentMeta
-} from '../../components/assessment/AssessmentPrimitives';
+import AssessmentWorkspace from '../../components/workspace/AssessmentWorkspace';
 import LecturerGradebookView from '../../components/gradebook/LecturerGradebookView';
 import StudentGradesView from '../../components/gradebook/StudentGradesView';
-import CoursePageFrame from '../../components/workspace/CoursePageFrame';
+import {
+  PageActions,
+  FilterSelect,
+  LoadingState,
+  EmptyState
+} from '../../components/ui';
+import ui from '../../components/ui/system.module.css';
 
 export default function GradebookPage() {
   const { courseId: routeCourseId } = useParams();
@@ -40,7 +40,12 @@ export default function GradebookPage() {
         const courses = Array.isArray(res.data?.courses) ? res.data.courses : [];
         if (!cancelled) {
           setOverview({ courses });
-          if (!routeCourseId && courses.length && !selectedCourseId && isLecturer) {
+          const shouldAutoSelectCourse =
+            !routeCourseId &&
+            courses.length &&
+            !selectedCourseId &&
+            (isLecturer || (isStudent && courses.length === 1));
+          if (shouldAutoSelectCourse) {
             setSelectedCourseId(String(courses[0].courseId));
           }
         }
@@ -54,7 +59,7 @@ export default function GradebookPage() {
       }
     };
     loadOverview();
-  }, [routeCourseId, isLecturer]);
+  }, [routeCourseId, isLecturer, isStudent]);
 
   useEffect(() => {
     if (!activeCourseId) {
@@ -96,7 +101,7 @@ export default function GradebookPage() {
       try {
         const res = await api.get(`/gradebook/course/${activeCourseId}/student/${selectedStudentId}`);
         if (!cancelled) setStudentBreakdown(res.data?.student || null);
-      } catch (_) {
+      } catch {
         if (!cancelled) setStudentBreakdown(null);
       }
     };
@@ -113,39 +118,51 @@ export default function GradebookPage() {
     [overview]
   );
 
-  const pageTitle = isLecturer ? 'Gradebook' : 'My grades';
   const pageLead = isLecturer
     ? 'Review submissions, grading progress, and course outcomes at a glance.'
     : 'Your course performance, feedback, and completion progress in one place.';
 
   const showStudentOverview = isStudent && !activeCourseId && overview?.courses?.length > 1;
 
-  return (
-    <AssessmentShell wide={isLecturer}>
-      <CoursePageFrame courseId={routeCourseId} pageTitle="Gradebook">
-      <AssessmentPageHeader
-        kicker="Academic outcomes"
-        title={pageTitle}
-        lead={pageLead}
-      />
+  const gradebookBody = (
+    <>
+      <p className={ui.lead}>{pageLead}</p>
 
-      {error ? <AssessmentAlert>{error}</AssessmentAlert> : null}
+      {isLecturer && !routeCourseId && courseOptions.length > 1 ? (
+        <PageActions
+          filters={(
+            <FilterSelect
+              value={selectedCourseId}
+              onChange={(e) => setSelectedCourseId(e.target.value)}
+              className={ui.filterSelectWide}
+              aria-label="Select course for gradebook"
+            >
+              {courseOptions.map((c) => (
+                <option key={c.id} value={c.id}>{c.title}</option>
+              ))}
+            </FilterSelect>
+          )}
+        />
+      ) : null}
+
+      {error ? <div className={`${ui.notice} ${ui.noticeError}`}>{error}</div> : null}
 
       {loading && !showStudentOverview && !courseDetail ? (
-        <AssessmentMeta>Loading...</AssessmentMeta>
+        <LoadingState label="Loading gradebook…" />
       ) : null}
 
       {!loading && !overview?.courses?.length ? (
-        <AssessmentEmpty>No courses available.</AssessmentEmpty>
+        <EmptyState
+          title="No performance data available"
+          message={isStudent
+            ? 'Enrolled courses with released grades will appear here.'
+            : 'No courses available.'}
+        />
       ) : null}
 
       {isLecturer && courseDetail ? (
         <LecturerGradebookView
           courseDetail={courseDetail}
-          courseOptions={courseOptions}
-          selectedCourseId={selectedCourseId}
-          onCourseChange={setSelectedCourseId}
-          routeCourseId={routeCourseId}
           selectedStudentId={selectedStudentId}
           onSelectStudent={setSelectedStudentId}
           studentBreakdown={studentBreakdown}
@@ -163,7 +180,12 @@ export default function GradebookPage() {
           loading={loading}
         />
       ) : null}
-      </CoursePageFrame>
-    </AssessmentShell>
+    </>
+  );
+
+  return (
+    <AssessmentWorkspace courseId={routeCourseId || null}>
+      {gradebookBody}
+    </AssessmentWorkspace>
   );
 }

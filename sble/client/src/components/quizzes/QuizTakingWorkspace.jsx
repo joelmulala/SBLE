@@ -2,22 +2,33 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import api from '../../config/api';
 import { formatSeconds } from '../../assessment';
 import useQuizAttemptTimer from '../../hooks/useQuizAttemptTimer';
-import {
-  AssessmentPageHeader,
-  AssessmentAlert,
-  AssessmentSectionTitle,
-  AssessmentToolbar,
-  AssessmentCard,
-  AssessmentMeta,
-  BtnAccent,
-  BtnSecondary,
-  BtnPrimary,
-  CardTitleRow,
-  StatusBadge,
-  TextInput
-} from '../assessment/AssessmentPrimitives';
-import s from '../assessment/AssessmentPrimitives.module.css';
+import { Button, ConfirmDialog } from '../ui';
+import StatusPill from '../ui/StatusPill';
+import ui from '../ui/system.module.css';
 import qs from './AssessmentQuiz.module.css';
+
+function AnswerOption({ name, value, label, checked, onChange }) {
+  return (
+    <label className={[qs.optionRow, checked ? qs.optionRowSelected : ''].filter(Boolean).join(' ')}>
+      <input
+        type="radio"
+        name={name}
+        value={value}
+        checked={checked}
+        onChange={onChange}
+        className={qs.optionInput}
+      />
+      <span className={qs.optionText}>{label}</span>
+    </label>
+  );
+}
+
+function saveStatusLabel(saveState) {
+  if (saveState === 'saving') return 'Saving your answers…';
+  if (saveState === 'saved') return 'All changes saved';
+  if (saveState === 'error') return 'Save issue — answers kept on this device';
+  return 'Autosave active';
+}
 
 export default function QuizTakingWorkspace({
   activeQuiz,
@@ -28,11 +39,13 @@ export default function QuizTakingWorkspace({
   submitting,
   setSubmitting,
   setError,
+  error = '',
   updateQuizAttempt,
   onExit
 }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [saveState, setSaveState] = useState('idle');
+  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   const autoSaveTimerRef = useRef(null);
   const autoSubmittingRef = useRef(false);
 
@@ -142,6 +155,7 @@ export default function QuizTakingWorkspace({
         correctAnswers: Array.isArray(res.data?.correctAnswers) ? res.data.correctAnswers : [],
         feedback: Array.isArray(res.data?.feedback) ? res.data.feedback : []
       });
+      setShowSubmitConfirm(false);
     } catch (err) {
       const payload = err?.response?.data;
       if (payload?.attempt_id || payload?.score != null) {
@@ -151,62 +165,106 @@ export default function QuizTakingWorkspace({
           totalMarks: Number(payload.totalMarks ?? totalMarks),
           auto_submitted: Boolean(payload?.auto_submitted)
         });
+        setShowSubmitConfirm(false);
+      } else {
+        setError(payload?.error || 'Failed to submit quiz.');
       }
-      setError(payload?.error || 'Failed to submit quiz.');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const timerClass = secondsLeft == null
-    ? ''
-    : secondsLeft < 60
-      ? qs.timerUrgent
-      : secondsLeft < 300
-        ? qs.timerWarn
-        : qs.timerOk;
-
   const answeredCount = questions.filter((q) => {
     const a = answers[q.id];
     return a !== undefined && a !== null && String(a).trim() !== '';
   }).length;
-
+  const remainingCount = Math.max(0, questions.length - answeredCount);
   const currentQ = questions[currentIndex];
+
+  const timerTone = secondsLeft == null
+    ? 'neutral'
+    : secondsLeft < 60
+      ? 'critical'
+      : secondsLeft < 300
+        ? 'warn'
+        : 'ok';
+
+  const timerBarClass = [
+    qs.timerBar,
+    timerTone === 'warn' ? qs.timerBarWarn : '',
+    timerTone === 'critical' ? qs.timerBarCritical : '',
+    timerTone === 'ok' ? qs.timerBarOk : ''
+  ].filter(Boolean).join(' ');
+
+  const timerValueClass = [
+    qs.timerValue,
+    timerTone === 'warn' ? qs.timerWarn : '',
+    timerTone === 'critical' ? qs.timerUrgent : '',
+    timerTone === 'ok' ? qs.timerOk : ''
+  ].filter(Boolean).join(' ');
+
+  const percentScore = result?.totalMarks
+    ? Math.round((Number(result.score || 0) / Number(result.totalMarks)) * 100)
+    : 0;
+  const passState = percentScore >= 50;
 
   if (result) {
     return (
       <div className={qs.attemptWorkspace}>
-        <AssessmentPageHeader kicker="Quiz results" title={activeQuiz.title} lead="Your attempt has been recorded." />
-        <div className={s.resultPanel}>
-          <CardTitleRow
-            title={`Score · ${result.score}/${result.totalMarks ?? 0}`}
-            aside={
-              <StatusBadge variant="info">
-                {result.totalMarks
-                  ? `${Math.round((Number(result.score || 0) / Number(result.totalMarks)) * 100)}%`
-                  : '0%'}
-              </StatusBadge>
-            }
-          />
-          {result.auto_submitted ? (
-            <AssessmentAlert type="warn">Time expired — your answers were submitted automatically by the server.</AssessmentAlert>
-          ) : null}
-          {result.message ? <AssessmentAlert type="success">{result.message}</AssessmentAlert> : null}
-          {Array.isArray(result.feedback) && result.feedback.length > 0 ? (
-            <>
-              <AssessmentSectionTitle>Feedback</AssessmentSectionTitle>
-              <div className={s.formGrid}>
-                {result.feedback.map((item, index) => (
-                  <AssessmentAlert key={item.question_id || index} type={item.status === 'correct' ? 'success' : 'error'}>
-                    {item.message}
-                  </AssessmentAlert>
-                ))}
-              </div>
-            </>
-          ) : null}
-          <AssessmentToolbar>
-            <BtnPrimary type="button" onClick={onExit}>Back to quizzes</BtnPrimary>
-          </AssessmentToolbar>
+        <header className={qs.attemptHeader}>
+          <p className={qs.attemptKicker}>Quiz complete</p>
+          <h1 className={qs.attemptTitle}>{activeQuiz.title}</h1>
+          <p className={qs.attemptLead}>Your attempt has been recorded and saved.</p>
+        </header>
+
+        <section className={qs.resultHero} aria-label="Quiz score">
+          <div className={qs.resultScoreBlock}>
+            <p className={qs.resultScoreLabel}>Your score</p>
+            <p className={qs.resultScoreValue}>
+              {result.score}
+              <span className={qs.resultScoreDenom}> / {result.totalMarks ?? 0}</span>
+            </p>
+            <p className={qs.resultPercent}>{percentScore}%</p>
+          </div>
+          <StatusPill variant={passState ? 'active' : 'inactive'}>
+            {passState ? 'Pass' : 'Below 50%'}
+          </StatusPill>
+        </section>
+
+        {result.auto_submitted ? (
+          <div className={ui.notice}>
+            Time expired — your answers were submitted automatically.
+          </div>
+        ) : (
+          <div className={`${ui.notice} ${ui.noticeSuccess}`}>
+            Submission successful. You may review your results below.
+          </div>
+        )}
+
+        {result.message ? (
+          <p className={qs.resultMessage}>{result.message}</p>
+        ) : null}
+
+        {Array.isArray(result.feedback) && result.feedback.length > 0 ? (
+          <section className={qs.feedbackReview} aria-label="Question feedback">
+            <h2 className={qs.feedbackReviewTitle}>Answer review</h2>
+            <ul className={qs.feedbackList}>
+              {result.feedback.map((item, index) => (
+                <li
+                  key={item.question_id || index}
+                  className={item.status === 'correct' ? qs.feedbackItemOk : qs.feedbackItemMiss}
+                >
+                  {item.message}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
+        <div className={qs.attemptFooter}>
+          <Button type="button" variant="primary" onClick={onExit}>
+            Back to quizzes
+          </Button>
         </div>
       </div>
     );
@@ -214,28 +272,40 @@ export default function QuizTakingWorkspace({
 
   return (
     <div className={qs.attemptWorkspace}>
-      <AssessmentPageHeader
-        kicker="Quiz attempt"
-        title={activeQuiz.title}
-        lead={`${answeredCount} of ${questions.length} answered · server-enforced timer`}
-      />
+      <header className={qs.attemptHeader}>
+        <p className={qs.attemptKicker}>Quiz in progress</p>
+        <h1 className={qs.attemptTitle}>{activeQuiz.title}</h1>
+      </header>
+
+      {error ? <div className={`${ui.notice} ${ui.noticeError}`}>{error}</div> : null}
+
+      {hasQuestions ? (
+        <p className={qs.progressSummary} aria-live="polite">
+          Question {currentIndex + 1} of {questions.length}
+          <span className={qs.progressSep}> · </span>
+          {answeredCount} answered
+          <span className={qs.progressSep}> · </span>
+          {remainingCount} remaining
+        </p>
+      ) : null}
 
       {secondsLeft != null ? (
-        <div className={qs.timerBar}>
-          <div>
-            <AssessmentMeta>Time remaining</AssessmentMeta>
-            <p className={`${qs.timerValue} ${timerClass}`}>{formatSeconds(secondsLeft)}</p>
+        <div className={timerBarClass} role="status" aria-live="polite">
+          <div className={qs.timerMain}>
+            <span className={qs.timerLabel}>Time remaining</span>
+            <span className={timerValueClass}>{formatSeconds(secondsLeft)}</span>
           </div>
-          <div>
-            <p className={qs.saveStatus}>
-              {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved' : saveState === 'error' ? 'Save failed' : 'Autosave on'}
-            </p>
-            <AssessmentMeta>{answeredCount}/{questions.length} complete</AssessmentMeta>
+          <div className={qs.timerAside}>
+            <span className={[qs.saveStatus, saveState === 'saved' ? qs.saveStatusOk : '', saveState === 'error' ? qs.saveStatusError : ''].filter(Boolean).join(' ')}>
+              {saveStatusLabel(saveState)}
+            </span>
           </div>
         </div>
       ) : null}
 
-      {!hasQuestions ? <AssessmentAlert type="warn">This quiz is not available yet.</AssessmentAlert> : null}
+      {!hasQuestions ? (
+        <div className={ui.notice}>This quiz is not available yet.</div>
+      ) : null}
 
       {hasQuestions ? (
         <>
@@ -252,7 +322,8 @@ export default function QuizTakingWorkspace({
                     i === currentIndex ? qs.progressDotActive : ''
                   ].filter(Boolean).join(' ')}
                   onClick={() => setCurrentIndex(i)}
-                  aria-label={`Question ${i + 1}${answered ? ', answered' : ''}`}
+                  aria-label={`Question ${i + 1}${answered ? ', answered' : ', unanswered'}`}
+                  aria-current={i === currentIndex ? 'step' : undefined}
                 >
                   {i + 1}
                 </button>
@@ -262,75 +333,95 @@ export default function QuizTakingWorkspace({
 
           {currentQ ? (
             <article className={qs.questionPanel}>
-              <p className={s.questionTitle}>
-                {currentIndex + 1}. {currentQ.question_text}{' '}
-                <span className={s.meta}>({currentQ.marks} mark{currentQ.marks > 1 ? 's' : ''})</span>
-              </p>
+              <div className={qs.questionHead}>
+                <span className={qs.questionNumber}>Q{currentIndex + 1}</span>
+                <span className={qs.questionMarks}>
+                  {currentQ.marks} mark{Number(currentQ.marks) === 1 ? '' : 's'}
+                </span>
+              </div>
+              <p className={qs.questionPrompt}>{currentQ.question_text}</p>
 
-              {currentQ.question_type === 'mcq' && currentQ.options?.map((opt, oi) => (
-                <label key={oi} className={s.optionLabel}>
-                  <input
-                    type="radio"
+              <div className={qs.optionsGroup}>
+                {currentQ.question_type === 'mcq' && currentQ.options?.map((opt, oi) => (
+                  <AnswerOption
+                    key={oi}
                     name={`q_${currentQ.id}`}
                     value={opt}
+                    label={opt}
                     checked={answers[currentQ.id] === opt}
                     onChange={() => setAnswers((prev) => ({ ...prev, [currentQ.id]: opt }))}
                   />
-                  {' '}
-                  {opt}
-                </label>
-              ))}
+                ))}
 
-              {currentQ.question_type === 'true_false' && ['True', 'False'].map((opt) => (
-                <label key={opt} className={s.optionLabel}>
-                  <input
-                    type="radio"
+                {currentQ.question_type === 'true_false' && ['True', 'False'].map((opt) => (
+                  <AnswerOption
+                    key={opt}
                     name={`q_${currentQ.id}`}
                     value={opt}
+                    label={opt}
                     checked={answers[currentQ.id] === opt}
                     onChange={() => setAnswers((prev) => ({ ...prev, [currentQ.id]: opt }))}
                   />
-                  {' '}
-                  {opt}
-                </label>
-              ))}
+                ))}
 
-              {currentQ.question_type === 'short_answer' && (
-                <TextInput
-                  value={answers[currentQ.id] || ''}
-                  onChange={(e) => setAnswers((prev) => ({ ...prev, [currentQ.id]: e.target.value }))}
-                  placeholder="Type your answer…"
-                  style={{ marginTop: 8 }}
-                />
-              )}
+                {currentQ.question_type === 'short_answer' ? (
+                  <input
+                    type="text"
+                    className={`${ui.input} ${qs.shortAnswerInput}`}
+                    value={answers[currentQ.id] || ''}
+                    onChange={(e) => setAnswers((prev) => ({ ...prev, [currentQ.id]: e.target.value }))}
+                    placeholder="Type your answer"
+                    aria-label={`Answer for question ${currentIndex + 1}`}
+                  />
+                ) : null}
+              </div>
 
               <div className={qs.questionNav}>
-                <BtnSecondary type="button" disabled={currentIndex === 0} onClick={() => setCurrentIndex((i) => i - 1)}>
+                <Button type="button" variant="ghost" disabled={currentIndex === 0} onClick={() => setCurrentIndex((i) => i - 1)}>
                   Previous
-                </BtnSecondary>
-                <BtnSecondary
+                </Button>
+                <Button
                   type="button"
+                  variant="ghost"
                   disabled={currentIndex >= questions.length - 1}
                   onClick={() => setCurrentIndex((i) => i + 1)}
                 >
                   Next
-                </BtnSecondary>
+                </Button>
               </div>
             </article>
           ) : null}
 
-          <AssessmentToolbar>
-            <BtnAccent
+          <footer className={qs.attemptFooter}>
+            <Button
               type="button"
-              onClick={submitQuiz}
+              variant="primary"
+              onClick={() => setShowSubmitConfirm(true)}
               disabled={submitting || secondsLeft === 0}
             >
               {submitting ? 'Submitting…' : secondsLeft === 0 ? 'Time expired' : 'Submit quiz'}
-            </BtnAccent>
-            <BtnSecondary type="button" onClick={onExit}>Exit</BtnSecondary>
-          </AssessmentToolbar>
+            </Button>
+            <Button type="button" variant="ghost" onClick={onExit}>
+              Exit without submitting
+            </Button>
+          </footer>
         </>
       ) : null}
+
+      <ConfirmDialog
+        open={showSubmitConfirm}
+        title="Submit this quiz?"
+        message={
+          remainingCount > 0
+            ? `You have answered ${answeredCount} of ${questions.length} questions. ${remainingCount} question${remainingCount === 1 ? ' is' : 's are'} still blank. After submission, you cannot change your answers.`
+            : `You have answered all ${questions.length} questions. After submission, you cannot change your answers.`
+        }
+        confirmLabel="Submit now"
+        cancelLabel="Continue quiz"
+        busy={submitting}
+        onConfirm={submitQuiz}
+        onCancel={() => setShowSubmitConfirm(false)}
+      />
     </div>
   );
 }

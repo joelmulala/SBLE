@@ -91,11 +91,24 @@ export default function Layout() {
     { to: '/student/gradebook', label: 'Gradebook', matchRoutes: [/^\/student\/gradebook(?:\/)?$/, /^\/student\/courses\/[^/]+\/gradebook(?:\/)?$/] }
   ];
 
-  const academicNavItems = isLecturer ? lecturerNavItems : studentNavItems;
+  const adminNavItems = [
+    { to: '/lecturer/dashboard', label: 'Overview', end: true, matchRoutes: [/^\/lecturer\/dashboard/] },
+    { to: '/users', label: 'Users', matchRoutes: [/^\/users/] },
+    { to: '/lecturer/courses', label: 'Courses', matchRoutes: [/^\/lecturer\/courses\/?$/] },
+    { to: '/lecturer/enrollment', label: 'Enrollment', matchRoutes: [/\/enrollment/] },
+    { to: '/rooms', label: 'Live classes', matchRoutes: [/^\/room\/[^/]+/, /^\/rooms/] }
+  ];
+
+  const academicNavItems = isAdmin
+    ? adminNavItems
+    : isLecturer
+      ? lecturerNavItems
+      : studentNavItems;
   const liveClassNotification = notifications.find((n) => n.type === 'live_class_started' && n.roomId);
   const pageTitle = resolvePageTitle(location.pathname);
   const breadcrumbs = buildBreadcrumbs(location.pathname, {
     isLecturer,
+    isAdmin,
     courseTitle: courseTitle || (courseId ? `Course ${courseId}` : '')
   });
 
@@ -146,22 +159,28 @@ export default function Layout() {
             </div>
           </div>
 
-          <SidebarGroup label="Main">
-            <NavItem to={isLecturer ? '/lecturer/dashboard' : '/student/dashboard'} end>Dashboard</NavItem>
-            <NavItem to="/rooms" matchRoutes={[/^\/room\/[^/]+(?:\/)?$/, /^\/rooms(?:\/)?$/]}>Live classes</NavItem>
+          <SidebarGroup label={isAdmin ? 'Institution' : 'Main'}>
+            {isAdmin ? (
+              academicNavItems.map((item) => (
+                <NavItem key={item.to} to={item.to} end={item.end} matchRoutes={item.matchRoutes}>
+                  {item.label}
+                </NavItem>
+              ))
+            ) : (
+              <>
+                <NavItem to={isLecturer ? '/lecturer/dashboard' : '/student/dashboard'} end>Dashboard</NavItem>
+                <NavItem to="/rooms" matchRoutes={[/^\/room\/[^/]+(?:\/)?$/, /^\/rooms(?:\/)?$/]}>Live classes</NavItem>
+              </>
+            )}
           </SidebarGroup>
 
-          <SidebarGroup label="Academic">
-            {academicNavItems.map((item) => (
-              <NavItem key={item.to} to={item.to} end={item.end} matchRoutes={item.matchRoutes}>
-                {item.label}
-              </NavItem>
-            ))}
-          </SidebarGroup>
-
-          {isAdmin ? (
-            <SidebarGroup label="Administration">
-              <NavItem to="/users">Users</NavItem>
+          {!isAdmin ? (
+            <SidebarGroup label="Academic">
+              {academicNavItems.map((item) => (
+                <NavItem key={item.to} to={item.to} end={item.end} matchRoutes={item.matchRoutes}>
+                  {item.label}
+                </NavItem>
+              ))}
             </SidebarGroup>
           ) : null}
         </div>
@@ -211,11 +230,13 @@ export default function Layout() {
             <div className={styles.notifWrap}>
             <button
               type="button"
+              id="workspace-notifications-trigger"
               onClick={() => setShowNotifs((open) => !open)}
               className={styles.notificationButton}
               aria-label={`Notifications${notifications.length ? `, ${notifications.length} unread` : ''}`}
               aria-expanded={showNotifs}
               aria-haspopup="dialog"
+              aria-controls="workspace-notifications-panel"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden>
                 <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" strokeLinejoin="round" />
@@ -235,7 +256,11 @@ export default function Layout() {
               />
             ) : null}
             </div>
-            <div className={styles.profileChip} title={userName}>
+            <div
+              className={styles.profileChip}
+              title={userName}
+              aria-label={`Signed in as ${userName}`}
+            >
               <span className={styles.profileAvatar} aria-hidden>{userInitials}</span>
               <span className={styles.profileName}>{userName}</span>
             </div>
@@ -260,7 +285,7 @@ export default function Layout() {
 
         <main id="main-content" className={styles.content} tabIndex={-1}>
           <div className="wk-page">
-            <div className="wk-container">
+            <div className={`wk-container ${isAdmin ? 'wk-container--admin' : ''}`}>
               <Outlet />
             </div>
           </div>

@@ -1,20 +1,7 @@
 import React, { useState } from 'react';
 import api from '../../config/api';
-
-const panelStyle = {
-  background: '#fff',
-  borderRadius: 8,
-  padding: 16,
-  boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
-  border: '1px solid #e7ecf5'
-};
-
-const inputStyle = {
-  width: '100%',
-  padding: '8px 10px',
-  borderRadius: 6,
-  border: '1px solid #ddd'
-};
+import s from '../ui/system.module.css';
+import { Button } from '../ui';
 
 export default function EnrollmentPanel({ courseId, onEnrollmentChange }) {
   const [studentId, setStudentId] = useState('');
@@ -68,61 +55,72 @@ export default function EnrollmentPanel({ courseId, onEnrollmentChange }) {
     }
   };
 
+  const noticeClass = message.toLowerCase().includes('failed')
+    ? `${s.notice} ${s.noticeError}`
+    : `${s.notice} ${s.noticeSuccess}`;
+
   return (
-    <div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12, marginTop: 16 }}>
-        <form onSubmit={enrollSingle} style={panelStyle}>
-          <strong>Add Student</strong>
-          <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
+    <div className={s.enrollGrid}>
+      <form onSubmit={enrollSingle} className={s.panel}>
+        <div className={s.panelHeader}>
+          <h3 className={s.panelTitle}>Add student</h3>
+          <p className={s.panelLead}>Enroll by student ID.</p>
+        </div>
+        <div className={s.panelBody}>
+          <div className={s.field}>
+            <label htmlFor="enroll-student-id">Student ID</label>
             <input
+              id="enroll-student-id"
+              className={s.input}
               value={studentId}
               onChange={(e) => setStudentId(e.target.value)}
-              placeholder="Student ID"
+              placeholder="e.g. STU-2024-001"
               required
-              style={inputStyle}
             />
-            <button type="submit" disabled={busy} style={primaryButtonStyle}>
-              {busy ? 'Saving...' : 'Add Student'}
-            </button>
           </div>
-        </form>
-
-        <form onSubmit={enrollByCsv} style={panelStyle}>
-          <strong>Upload CSV</strong>
-          <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
-            <input type="file" accept=".csv" onChange={(e) => setCsvFile(e.target.files?.[0] || null)} required />
-            <button type="submit" disabled={busy || !csvFile} style={secondaryButtonStyle}>
-              {busy ? 'Uploading...' : 'Upload CSV'}
-            </button>
-          </div>
-        </form>
-      </div>
-
-      {message && <p style={{ marginTop: 12, color: message.toLowerCase().includes('failed') ? '#c0392b' : '#2c3e50' }}>{message}</p>}
-
-      {result && (
-        <div style={{ ...panelStyle, marginTop: 12 }}>
-          <strong>CSV Result</strong>
-          <p style={{ marginTop: 8, color: '#666', fontSize: '0.9rem' }}>Enrolled: {result.enrolled?.length || 0}</p>
-          <p style={{ color: '#666', fontSize: '0.9rem' }}>Already enrolled: {result.alreadyEnrolled?.length || 0}</p>
-          <p style={{ color: '#666', fontSize: '0.9rem' }}>Not found: {result.notFound?.length || 0}</p>
+          <Button type="submit" disabled={busy} variant="primary">
+            {busy ? 'Saving…' : 'Add student'}
+          </Button>
         </div>
-      )}
+      </form>
+
+      <form onSubmit={enrollByCsv} className={s.panel}>
+        <div className={s.panelHeader}>
+          <h3 className={s.panelTitle}>Bulk CSV</h3>
+          <p className={s.panelLead}>Upload a roster file for batch enrollment.</p>
+        </div>
+        <div className={s.panelBody}>
+          <div className={s.field}>
+            <label htmlFor="enroll-csv">CSV file</label>
+            <input
+              id="enroll-csv"
+              type="file"
+              accept=".csv"
+              className={s.input}
+              onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
+              required
+            />
+          </div>
+          <Button type="submit" disabled={busy || !csvFile}>
+            {busy ? 'Uploading…' : 'Upload CSV'}
+          </Button>
+        </div>
+      </form>
+
+      {message ? <p className={`${noticeClass} ${s.enrollGridFull}`}>{message}</p> : null}
+
+      {result ? (
+        <div className={`${s.panel} ${s.enrollGridFull}`}>
+          <div className={s.panelHeader}>
+            <h3 className={s.panelTitle}>CSV result</h3>
+          </div>
+          <div className={s.panelBody}>
+            <p className={s.cellMuted}>Enrolled: {result.enrolled?.length || 0}</p>
+            <p className={s.cellMuted}>Already enrolled: {result.alreadyEnrolled?.length || 0}</p>
+            <p className={s.cellMuted}>Not found: {result.notFound?.length || 0}</p>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
-
-const primaryButtonStyle = {
-  background: '#4f8ef7',
-  color: '#fff',
-  border: 'none',
-  borderRadius: 6,
-  padding: '8px 12px',
-  cursor: 'pointer',
-  fontWeight: 600
-};
-
-const secondaryButtonStyle = {
-  ...primaryButtonStyle,
-  background: '#16a085'
-};

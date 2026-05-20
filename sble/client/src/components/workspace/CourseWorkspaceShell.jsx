@@ -1,25 +1,42 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import api from '../../config/api';
-import { useAssessmentRoles } from '../../assessment';
-import { AssessmentMeta } from '../assessment/AssessmentPrimitives';
 import { getCourseNavItems, coursePath, detectActiveSegment } from './courseWorkspaceConfig';
+import CourseContextBar from './CourseContextBar';
 import s from './Workspace.module.css';
 
-export default function CourseWorkspaceShell({ children, pageTitle }) {
+export default function CourseWorkspaceShell({ children }) {
   const { courseId } = useParams();
   const location = useLocation();
-  const { isLecturer } = useAssessmentRoles();
-  const rolePrefix = isLecturer ? 'lecturer' : 'student';
   const [course, setCourse] = useState(null);
+  const [loadingCourse, setLoadingCourse] = useState(Boolean(courseId));
   const activeSegment = detectActiveSegment(location.pathname, courseId);
+
+  const isLecturer = location.pathname.startsWith('/lecturer');
+  const rolePrefix = isLecturer ? 'lecturer' : 'student';
   const navItems = getCourseNavItems(isLecturer);
 
   useEffect(() => {
-    if (!courseId) return;
+    if (!courseId) {
+      setCourse(null);
+      setLoadingCourse(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingCourse(true);
     api.get(`/courses/${courseId}`)
-      .then((res) => setCourse(res.data))
-      .catch(() => setCourse(null));
+      .then((res) => {
+        if (!cancelled) setCourse(res.data);
+      })
+      .catch(() => {
+        if (!cancelled) setCourse(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingCourse(false);
+      });
+
+    return () => { cancelled = true; };
   }, [courseId]);
 
   if (!courseId) {
@@ -28,12 +45,7 @@ export default function CourseWorkspaceShell({ children, pageTitle }) {
 
   return (
     <div className={s.workspaceShell}>
-      {course?.title ? (
-        <p className={s.courseContext}>
-          <span className={s.courseContextLabel}>Course</span>
-          {course.title}
-        </p>
-      ) : null}
+      <CourseContextBar course={course} loading={loadingCourse} />
 
       <nav className={s.courseNav} aria-label="Course sections">
         {navItems.map((item) => {
@@ -51,12 +63,6 @@ export default function CourseWorkspaceShell({ children, pageTitle }) {
           );
         })}
       </nav>
-
-      {course?.lecturer && pageTitle ? (
-        <AssessmentMeta>
-          {course.title} · {pageTitle} · Lecturer: {course.lecturer.full_name}
-        </AssessmentMeta>
-      ) : null}
 
       {children}
     </div>

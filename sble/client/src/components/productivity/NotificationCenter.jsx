@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   groupNotificationsByCategory,
@@ -31,7 +31,16 @@ export default function NotificationCenter({
   isLecturer
 }) {
   const navigate = useNavigate();
+  const panelRef = useRef(null);
   const groups = useMemo(() => groupNotificationsByCategory(notifications), [notifications]);
+
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return undefined;
+    const focusable = panel.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+    focusable?.focus();
+    return undefined;
+  }, []);
 
   const handleOpen = (notification) => {
     const path = resolveNotificationPath(notification, { isLecturer });
@@ -42,8 +51,11 @@ export default function NotificationCenter({
 
   return (
     <div
+      ref={panelRef}
+      id="workspace-notifications-panel"
       className={s.notifCenter}
       role="dialog"
+      aria-modal="true"
       aria-label="Academic notifications"
     >
       <div className={s.notifCenterHeader}>

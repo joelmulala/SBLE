@@ -1,15 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import api from '../../config/api';
-import {
-  AssessmentMeta,
-  AssessmentAlert,
-  BtnPrimary,
-  BtnSecondary,
-  Field,
-  TextInput,
-  TextArea,
-  StatusBadge
-} from '../assessment/AssessmentPrimitives';
+import { Button } from '../ui';
+import StatusPill from '../ui/StatusPill';
+import ui from '../ui/system.module.css';
+import { Field, TextInput, TextArea } from '../assessment/AssessmentPrimitives';
 import { canPreviewFile, getLecturerSubmissionStatus } from './assignmentUtils';
 import s from './Assignments.module.css';
 
@@ -87,6 +81,11 @@ export default function GradingPanel({
   if (!submission) return null;
 
   const isPdf = submission.file_name?.toLowerCase().endsWith('.pdf');
+  const studentLabel = submission.student?.full_name || submission.student?.email || 'Student';
+  const pillVariant = status?.key === 'graded' ? 'active'
+    : status?.key === 'late' ? 'inactive'
+      : status?.key === 'pending_release' ? 'info'
+        : 'info';
 
   return (
     <div className={s.gradingOverlay} role="presentation" onClick={onClose}>
@@ -97,17 +96,19 @@ export default function GradingPanel({
         onClick={(e) => e.stopPropagation()}
       >
         <header className={s.gradingHeader}>
-          <div>
-            <h2 className={s.gradingTitle}>
-              {submission.student?.full_name || submission.student?.email || 'Student'}
-            </h2>
+          <div className={s.gradingIdentity}>
+            <p className={s.gradingKicker}>Grading submission</p>
+            <h2 className={s.gradingTitle}>{studentLabel}</h2>
             <p className={s.gradingSub}>
-              {submission.file_name || 'Submission'}
-              {submission.submitted_at
-                ? ` · ${new Date(submission.submitted_at).toLocaleString()}`
-                : ''}
+              {assignment?.title ? `${assignment.title} · ` : ''}
+              {submission.file_name || 'Attachment'}
             </p>
-            {status ? <StatusBadge variant={status.variant}>{status.label}</StatusBadge> : null}
+            <p className={s.gradingSub}>
+              {submission.submitted_at
+                ? `Submitted ${new Date(submission.submitted_at).toLocaleString()}`
+                : 'Submission time unavailable'}
+            </p>
+            {status ? <StatusPill variant={pillVariant}>{status.label}</StatusPill> : null}
           </div>
           <button type="button" className={s.gradingClose} onClick={onClose} aria-label="Close">
             ×
@@ -115,83 +116,78 @@ export default function GradingPanel({
         </header>
 
         <div className={s.gradingBody}>
-          {error ? <AssessmentAlert type="error">{error}</AssessmentAlert> : null}
+          {error ? <div className={`${ui.notice} ${ui.noticeError}`}>{error}</div> : null}
 
-          {showPreview ? (
-            <section aria-label="Submission preview">
-              <AssessmentMeta strong>Submission preview</AssessmentMeta>
-              {previewLoading ? <AssessmentMeta>Loading preview…</AssessmentMeta> : null}
-              {previewError ? <AssessmentMeta>{previewError}</AssessmentMeta> : null}
-              {!previewLoading && previewUrl && isPdf ? (
-                <iframe
-                  title="Submission preview"
-                  className={s.previewFrame}
-                  src={previewUrl}
-                />
-              ) : null}
-              {!previewLoading && previewUrl && !isPdf ? (
-                <img src={previewUrl} alt="Submission preview" className={s.previewImage} />
-              ) : null}
-            </section>
-          ) : (
-            <AssessmentMeta>Download the file to review handwritten or unsupported formats.</AssessmentMeta>
-          )}
+          <section className={s.gradingPreviewBlock} aria-label="Submission preview">
+            <div className={s.gradingPreviewHead}>
+              <h3 className={s.gradingSectionTitle}>Attachment</h3>
+              <Button type="button" variant="ghost" onClick={() => onDownload(submission)}>
+                Download
+              </Button>
+            </div>
+            {showPreview ? (
+              <>
+                {previewLoading ? <p className={s.gradingHint}>Loading preview…</p> : null}
+                {previewError ? <p className={s.gradingHint}>{previewError}</p> : null}
+                {!previewLoading && previewUrl && isPdf ? (
+                  <iframe title="Submission preview" className={s.previewFrame} src={previewUrl} />
+                ) : null}
+                {!previewLoading && previewUrl && !isPdf ? (
+                  <img src={previewUrl} alt="Submission preview" className={s.previewImage} />
+                ) : null}
+              </>
+            ) : (
+              <p className={s.gradingHint}>Download the file to review unsupported or handwritten formats.</p>
+            )}
+          </section>
 
-          <BtnSecondary type="button" onClick={() => onDownload(submission)}>
-            Download attachment
-          </BtnSecondary>
+          <section className={s.gradingFormBlock}>
+            <h3 className={s.gradingSectionTitle}>Score & feedback</h3>
+            <Field label="Score (0–100)">
+              <TextInput
+                type="number"
+                min={0}
+                max={100}
+                step={0.01}
+                value={grade}
+                onChange={(e) => onGradeChange(e.target.value)}
+                placeholder="e.g. 85"
+                className={s.scoreInput}
+              />
+            </Field>
 
-          <Field label="Score (0–100)">
-            <TextInput
-              type="number"
-              min={0}
-              max={100}
-              step={0.01}
-              value={grade}
-              onChange={(e) => onGradeChange(e.target.value)}
-              placeholder="e.g. 85"
-            />
-          </Field>
+            <Field label="Feedback for student">
+              <TextArea
+                value={feedback}
+                onChange={(e) => onFeedbackChange(e.target.value)}
+                rows={5}
+                placeholder="Constructive comments on this submission…"
+              />
+            </Field>
 
-          <Field label="Feedback for student">
-            <TextArea
-              value={feedback}
-              onChange={(e) => onFeedbackChange(e.target.value)}
-              rows={5}
-              placeholder="Constructive comments on this submission…"
-            />
-          </Field>
+            <label className={s.publishCheck}>
+              <input
+                type="checkbox"
+                checked={publish}
+                onChange={(e) => onPublishChange(e.target.checked)}
+              />
+              <span>Publish to student — updates gradebook and notifies the student</span>
+            </label>
 
-          <label className="checkRow" style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
-            <input
-              type="checkbox"
-              checked={publish}
-              onChange={(e) => onPublishChange(e.target.checked)}
-            />
-            <span style={{ fontSize: 'var(--fs-00)', color: 'var(--color-text-muted)' }}>
-              Publish to student — updates gradebook visibility and sends notification
-            </span>
-          </label>
-
-          <div className="rubricPlaceholder" style={{
-            padding: 'var(--space-3)',
-            border: '1px dashed var(--color-border)',
-            borderRadius: 'var(--radius-sm)',
-            fontSize: 'var(--fs-00)',
-            color: 'var(--color-text-faint)'
-          }}>
-            Rubric criteria can be attached in the assignment brief. Structured rubric scoring is not enabled in this release.
-          </div>
+            <p className={s.rubricPlaceholder}>
+              Structured rubric scoring is not enabled. Attach criteria in the assignment brief if needed.
+            </p>
+          </section>
         </div>
 
         <footer className={s.gradingFooter}>
-          <BtnPrimary type="button" disabled={saving} onClick={onPublish}>
+          <Button type="button" variant="primary" disabled={saving} onClick={onPublish}>
             {saving ? 'Saving…' : publish ? 'Save & publish' : 'Publish results'}
-          </BtnPrimary>
-          <BtnSecondary type="button" disabled={saving} onClick={onSaveDraft}>
+          </Button>
+          <Button type="button" variant="ghost" disabled={saving} onClick={onSaveDraft}>
             Save draft
-          </BtnSecondary>
-          <BtnSecondary type="button" onClick={onClose}>Cancel</BtnSecondary>
+          </Button>
+          <Button type="button" variant="ghost" onClick={onClose}>Close</Button>
         </footer>
       </aside>
     </div>

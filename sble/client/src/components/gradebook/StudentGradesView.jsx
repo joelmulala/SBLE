@@ -1,24 +1,25 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  AssessmentCard,
-  AssessmentSectionTitle,
-  AssessmentEmpty,
-  AssessmentMeta,
-  Field,
-  SelectInput,
-  StatusBadge
-} from '../assessment/AssessmentPrimitives';
+  PageActions,
+  Panel,
+  FilterSelect,
+  KpiStatGrid,
+  StatCard,
+  LoadingState,
+  EmptyState
+} from '../ui';
+import StatusPill from '../ui/StatusPill';
 import {
   ProgressBar,
-  SummaryTile,
   LetterGrade,
   TrendIndicator
 } from './GradebookUI';
 import StudentDetailPanel from './StudentDetailPanel';
 import {
   formatScore,
-  formatPercentRatio
+  formatPercentRatio,
+  computeStudentGradeSummary
 } from './gradebookUtils';
 import s from './GradebookUI.module.css';
 
@@ -35,43 +36,73 @@ export default function StudentGradesView({
   const courseTitle = courseDetail?.course?.title;
   const courseId = courseDetail?.course?.id || selectedCourseId;
 
+  const kpi = useMemo(() => (row ? computeStudentGradeSummary(row) : null), [row]);
+
   if (!routeCourseId && !selectedCourseId && overview?.courses?.length > 1) {
-    return <CourseOverviewCards courses={overview.courses} onSelect={onCourseChange} />;
+    return <CourseOverviewPanel courses={overview.courses} onSelect={onCourseChange} />;
   }
 
   if (loading && !courseDetail) {
-    return <AssessmentMeta>Loading your grades...</AssessmentMeta>;
+    return <LoadingState label="Loading your grades…" />;
   }
 
   if (!row) {
-    return <AssessmentEmpty>No grade data available for this course yet.</AssessmentEmpty>;
+    return (
+      <EmptyState
+        title="No grades released yet"
+        message="Grades and feedback will appear here once your lecturer publishes results for this course."
+      />
+    );
   }
 
   return (
     <>
       {!routeCourseId && courseOptions.length > 1 ? (
-        <AssessmentCard>
-          <Field label="Course">
-            <SelectInput value={selectedCourseId} onChange={(e) => onCourseChange(e.target.value)}>
+        <PageActions
+          filters={(
+            <FilterSelect
+              value={selectedCourseId}
+              onChange={(e) => onCourseChange(e.target.value)}
+              className={s.courseFilter}
+              aria-label="Select course"
+            >
               {courseOptions.map((c) => (
                 <option key={c.id} value={c.id}>{c.title}</option>
               ))}
-            </SelectInput>
-          </Field>
-        </AssessmentCard>
+            </FilterSelect>
+          )}
+        />
       ) : null}
 
-      <StudentGradesHero row={row} courseTitle={courseTitle} courseId={courseId} />
+      {kpi ? (
+        <KpiStatGrid>
+          <StatCard
+            label="Current average"
+            value={kpi.currentAverage === '—' ? '—' : `${kpi.currentAverage}%`}
+            hint="Weighted course average"
+          />
+          <StatCard label="Completed" value={kpi.completedAssessments} hint="Released results" />
+          <StatCard label="Pending grades" value={kpi.pendingGrades} hint="Awaiting release or review" />
+          <StatCard
+            label="Completion"
+            value={kpi.completionPercent != null ? `${kpi.completionPercent}%` : '—'}
+            hint="Assessments completed"
+          />
+        </KpiStatGrid>
+      ) : null}
+
+      <Panel title={courseTitle || 'Course grades'}>
+        <StudentGradesHero row={row} courseId={courseId} />
+      </Panel>
+
       <StudentDetailPanel row={row} courseId={courseId} isLecturer={false} />
     </>
   );
 }
 
-function CourseOverviewCards({ courses, onSelect }) {
+function CourseOverviewPanel({ courses, onSelect }) {
   return (
-    <AssessmentCard>
-      <AssessmentSectionTitle>Your courses</AssessmentSectionTitle>
-      <AssessmentMeta>Select a course to view grades, feedback, and progress.</AssessmentMeta>
+    <Panel title="Your courses" lead="Select a course to view grades, feedback, and progress.">
       <div className={s.courseCards}>
         {courses.map((c) => (
           <button
@@ -80,16 +111,12 @@ function CourseOverviewCards({ courses, onSelect }) {
             className={s.courseCard}
             onClick={() => onSelect(String(c.courseId))}
           >
-            <h3 style={{ margin: '0 0 0.5rem', fontSize: 'var(--fs-2)' }}>{c.courseTitle}</h3>
+            <h3 className={s.courseCardTitle}>{c.courseTitle}</h3>
             {c.summary?.weightedAverage != null ? (
               <>
-                <p style={{ margin: 0, fontSize: 'var(--fs-3)', fontWeight: 700 }}>
-                  {formatScore(c.summary.weightedAverage)}%
-                </p>
+                <p className={s.courseCardScore}>{formatScore(c.summary.weightedAverage)}%</p>
                 {c.summary.letter ? (
-                  <p style={{ margin: '0.25rem 0 0', color: 'var(--color-text-muted)', fontSize: 'var(--fs-0)' }}>
-                    Grade {c.summary.letter}
-                  </p>
+                  <p className={s.courseCardLetter}>Grade {c.summary.letter}</p>
                 ) : null}
                 <ProgressBar
                   value={(c.summary.completionRate || 0) * 100}
@@ -98,36 +125,36 @@ function CourseOverviewCards({ courses, onSelect }) {
                 />
               </>
             ) : (
-              <AssessmentMeta>No scores recorded yet</AssessmentMeta>
+              <p className={s.courseCardMuted}>No scores recorded yet</p>
             )}
           </button>
         ))}
       </div>
-    </AssessmentCard>
+    </Panel>
   );
 }
 
-function StudentGradesHero({ row, courseTitle, courseId }) {
+function StudentGradesHero({ row, courseId }) {
   const summary = row.summary || {};
   const completionPct = summary.completionRate != null ? summary.completionRate * 100 : 0;
   const passState = summary.weightedAverage != null && Number(summary.weightedAverage) >= 50;
 
   return (
-    <AssessmentCard>
-      <AssessmentSectionTitle>{courseTitle || 'Course grades'}</AssessmentSectionTitle>
-      <div className={s.heroCard}>
+    <div className={s.studentHero}>
+      <div className={s.studentHeroMain}>
         <LetterGrade letter={summary.letter} status={summary.status} />
-        <div>
-          <div className={s.heroScore}>{formatScore(summary.weightedAverage)}%</div>
-          <p style={{ margin: '0.25rem 0 0', color: 'var(--color-text-muted)', fontSize: 'var(--fs-0)' }}>
-            Weighted course average
+        <div className={s.studentHeroStats}>
+          <p className={s.studentHeroScore}>
+            {formatScore(summary.weightedAverage)}
+            {summary.weightedAverage != null ? '%' : ''}
           </p>
-          <div style={{ marginTop: 'var(--space-4)', display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2)', alignItems: 'center' }}>
+          <p className={s.studentHeroLabel}>Weighted course average</p>
+          <div className={s.studentHeroMeta}>
             <TrendIndicator trend={summary.trend} />
             {summary.weightedAverage != null ? (
-              <StatusBadge variant={passState ? 'success' : 'danger'}>
+              <StatusPill variant={passState ? 'active' : 'inactive'}>
                 {passState ? 'Passing' : 'Below pass threshold'}
-              </StatusBadge>
+              </StatusPill>
             ) : null}
           </div>
           <ProgressBar
@@ -136,20 +163,15 @@ function StudentGradesHero({ row, courseTitle, courseId }) {
             value={completionPct}
             tone={completionPct >= 80 ? 'success' : completionPct >= 50 ? 'warn' : 'danger'}
           />
-          <div className={s.summaryGrid} style={{ marginTop: 'var(--space-5)' }}>
-            <SummaryTile label="Assignments" value={formatScore(summary.assignmentAvg)} />
-            <SummaryTile label="Quizzes" value={formatScore(summary.quizAvg)} />
-            <SummaryTile label="Attendance" value={summary.attendancePercent != null ? `${summary.attendancePercent}%` : '—'} />
-          </div>
         </div>
       </div>
       {courseId ? (
-        <nav className={s.navLinks} style={{ marginTop: 'var(--space-4)' }}>
+        <nav className={s.navLinks} aria-label="Course sections">
           <Link to={`/student/courses/${courseId}/assignments`} className={s.navLink}>Assignments</Link>
           <Link to={`/student/courses/${courseId}/quizzes`} className={s.navLink}>Quizzes</Link>
           <Link to={`/student/courses/${courseId}/exams`} className={s.navLink}>Exams</Link>
         </nav>
       ) : null}
-    </AssessmentCard>
+    </div>
   );
 }

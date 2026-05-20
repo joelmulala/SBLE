@@ -1,30 +1,27 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useKeycloak } from '../auth/AuthProvider';
 import api from '../config/api';
 import { buildFileUploadFormData, triggerBlobDownload } from '../utils/fileTransfer';
 import { getStudentExamUiState, computeExamParticipation } from '../assessment';
 import {
-  AssessmentShell,
-  AssessmentPageHeader,
-  AssessmentCard,
-  AssessmentSectionTitle,
-  AssessmentAlert,
-  AssessmentMeta,
-  AssessmentToolbar,
-  AssessmentDivider,
-  BtnPrimary,
-  BtnSecondary,
-  BtnAccent,
   Field,
-  TextInput,
-  CardTitleRow,
-  StatusBadge,
-  QueueItem
+  TextInput
 } from '../components/assessment/AssessmentPrimitives';
-import CoursePageFrame from '../components/workspace/CoursePageFrame';
+import AssessmentWorkspace from '../components/workspace/AssessmentWorkspace';
+import {
+  PageActions,
+  Panel,
+  Button,
+  DataTable,
+  TableActions,
+  SearchInput,
+  StatusPill,
+  EmptyState,
+  LoadingState
+} from '../components/ui';
+import ui from '../components/ui/system.module.css';
 import QuizEmptyIllustration from '../components/quizzes/QuizEmptyIllustration';
-import qstyles from '../components/quizzes/AssessmentQuiz.module.css';
 import s from '../components/assessment/AssessmentPrimitives.module.css';
 
 export default function Exams() {
@@ -42,6 +39,8 @@ export default function Exams() {
   const [openParticipantsExamId, setOpenParticipantsExamId] = useState(null);
   const [participantsByExam, setParticipantsByExam] = useState({});
   const [enrollmentCount, setEnrollmentCount] = useState(0);
+  const [showUpload, setShowUpload] = useState(false);
+  const [tableQuery, setTableQuery] = useState('');
 
   const loadExams = () => {
     setLoading(true);
@@ -77,6 +76,7 @@ export default function Exams() {
       setExams((prev) => [...prev, res.data]);
       setForm({ title: '', scheduled_at: '', duration_minutes: 120 });
       setFile(null);
+      setShowUpload(false);
       setMessage('Exam paper uploaded. Release when ready for students.');
     } catch (err) {
       setError(err?.response?.data?.error || 'Upload failed');
@@ -131,7 +131,7 @@ export default function Exams() {
         [examId]: Array.isArray(res.data?.participants) ? res.data.participants : []
       }));
       setEnrollmentCount(Number(res.data?.enrollmentCount) || 0);
-    } catch (err) {
+    } catch {
       setParticipantsByExam((prev) => ({ ...prev, [examId]: [] }));
     }
   };
@@ -143,136 +143,192 @@ export default function Exams() {
     return `${start} → ${end}`;
   };
 
-  return (
-    <AssessmentShell wide={isLecturer}>
-      <CoursePageFrame courseId={courseId} pageTitle="Exams">
-        <AssessmentPageHeader
-          kicker={isLecturer ? 'Teaching · examinations' : 'Learning · examinations'}
-          title="Exams"
-          lead={
-            isLecturer
-              ? 'Upload exam papers, set availability windows, and track student access during the examination period.'
-              : 'Download exam papers only during the scheduled window. Access is recorded for academic records.'
+  const releasedCount = useMemo(
+    () => exams.filter((ex) => ex.is_released).length,
+    [exams]
+  );
+
+  const activeWindowCount = useMemo(
+    () => exams.filter((ex) => ex.is_released && ex.window_status === 'open').length,
+    [exams]
+  );
+
+  const columns = useMemo(() => {
+    const base = [
+      {
+        key: 'title',
+        label: 'Exam',
+        render: (exam) => (
+          <div className={ui.cellStack}>
+            <span className={ui.cellPrimary}>{exam.title}</span>
+            <span className={ui.cellMuted}>{windowLabel(exam)} · {exam.duration_minutes} min</span>
+          </div>
+        )
+      },
+      {
+        key: 'status',
+        label: 'Status',
+        render: (exam) => {
+          if (isLecturer) {
+            const label = exam.is_released
+              ? (exam.window_status === 'open' ? 'Active' : exam.window_status || 'Released')
+              : 'Draft';
+            return <StatusPill variant={exam.is_released ? 'active' : 'inactive'}>{label}</StatusPill>;
           }
-        />
+          const studentState = getStudentExamUiState(exam);
+          return <StatusPill variant={studentState.badgeVariant === 'success' ? 'active' : 'info'}>{studentState.label}</StatusPill>;
+        }
+      },
+      {
+        key: 'actions',
+        label: 'Actions',
+        render: (exam) => (
+          <TableActions>
+            {isLecturer ? (
+              <>
+                {!exam.is_released ? (
+                  <Button type="button" variant="primary" onClick={() => releaseExam(exam.id)}>
+                    Release
+                  </Button>
+                ) : null}
+                <Button type="button" variant="ghost" onClick={() => toggleParticipants(exam.id)}>
+                  {openParticipantsExamId === exam.id ? 'Hide access' : 'Participation'}
+                </Button>
+                <Button type="button" variant="ghost" onClick={() => downloadExam(exam)}>
+                  Download
+                </Button>
+              </>
+            ) : (
+              <Button
+                type="button"
+                variant="primary"
+                disabled={!getStudentExamUiState(exam).canDownload}
+                onClick={() => downloadExam(exam)}
+              >
+                {getStudentExamUiState(exam).buttonLabel}
+              </Button>
+            )}
+          </TableActions>
+        )
+      }
+    ];
+    return base;
+  }, [isLecturer, openParticipantsExamId]);
 
-        {loading ? <AssessmentMeta>Loading exams…</AssessmentMeta> : null}
-        {error ? <AssessmentAlert type="error">{error}</AssessmentAlert> : null}
-        {message ? <AssessmentAlert type="success">{message}</AssessmentAlert> : null}
+  const openExam = exams.find((ex) => ex.id === openParticipantsExamId);
+  const openParticipants = openParticipantsExamId ? (participantsByExam[openParticipantsExamId] || []) : [];
+  const participation = openExam
+    ? computeExamParticipation(openParticipants, enrollmentCount)
+    : null;
 
-        {isLecturer ? (
-          <AssessmentCard>
-            <AssessmentSectionTitle>Upload exam paper</AssessmentSectionTitle>
-            <form onSubmit={uploadExam} className={s.formGrid}>
-              <Field label="Title">
-                <TextInput value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
-              </Field>
-              <Field label="Scheduled start">
-                <TextInput type="datetime-local" value={form.scheduled_at} onChange={(e) => setForm({ ...form, scheduled_at: e.target.value })} />
-              </Field>
-              <Field label="Duration (minutes)">
-                <TextInput type="number" min={1} value={form.duration_minutes} onChange={(e) => setForm({ ...form, duration_minutes: e.target.value })} />
-              </Field>
-              <Field label="PDF file">
-                <input type="file" accept=".pdf" onChange={(e) => setFile(e.target.files?.[0] || null)} required />
-              </Field>
-              <BtnPrimary type="submit" disabled={uploading}>{uploading ? 'Uploading…' : 'Upload exam'}</BtnPrimary>
-            </form>
-          </AssessmentCard>
+  return (
+    <AssessmentWorkspace courseId={courseId}>
+      <p className={ui.lead}>
+        {isLecturer
+          ? 'Upload exam papers, set availability windows, and track student access during the examination period.'
+          : 'Download exam papers only during the scheduled window. Access is recorded for academic records.'}
+      </p>
+
+      <PageActions
+        search={(
+          <SearchInput
+            placeholder="Search exams…"
+            value={tableQuery}
+            onChange={(e) => setTableQuery(e.target.value)}
+            aria-label="Search exams"
+          />
+        )}
+        actions={isLecturer ? (
+          <Button type="button" variant="primary" onClick={() => setShowUpload((prev) => !prev)}>
+            {showUpload ? 'Close upload' : 'Upload exam'}
+          </Button>
         ) : null}
+      />
 
-        <AssessmentSectionTitle>Scheduled exams</AssessmentSectionTitle>
+      {error ? <div className={`${ui.notice} ${ui.noticeError}`}>{error}</div> : null}
+      {message ? <div className={`${ui.notice} ${ui.noticeSuccess}`}>{message}</div> : null}
 
-        {!loading && exams.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 'var(--space-6)' }}>
+      {isLecturer && exams.length > 0 ? (
+        <KpiStatGrid>
+          <StatCard label="Scheduled exams" value={exams.length} hint="In this course" />
+          <StatCard label="Released" value={releasedCount} hint="Available to students" />
+          <StatCard label="Draft" value={exams.length - releasedCount} hint="Awaiting release" />
+          <StatCard label="Active windows" value={activeWindowCount} hint="Open for download now" />
+        </KpiStatGrid>
+      ) : null}
+
+      {isLecturer && showUpload ? (
+        <Panel title="Upload exam paper">
+          <form onSubmit={uploadExam} className={s.formGrid}>
+            <Field label="Title">
+              <TextInput value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
+            </Field>
+            <Field label="Scheduled start">
+              <TextInput type="datetime-local" value={form.scheduled_at} onChange={(e) => setForm({ ...form, scheduled_at: e.target.value })} />
+            </Field>
+            <Field label="Duration (minutes)">
+              <TextInput type="number" min={1} value={form.duration_minutes} onChange={(e) => setForm({ ...form, duration_minutes: e.target.value })} />
+            </Field>
+            <div className={ui.field}>
+              <label htmlFor="exam-pdf">PDF file</label>
+              <input id="exam-pdf" type="file" className={ui.input} accept=".pdf" onChange={(e) => setFile(e.target.files?.[0] || null)} required />
+            </div>
+            <div className={ui.formActions}>
+              <Button type="submit" variant="primary" disabled={uploading}>
+                {uploading ? 'Uploading…' : 'Upload exam'}
+              </Button>
+            </div>
+          </form>
+        </Panel>
+      ) : null}
+
+      <Panel title="Scheduled exams" lead={loading ? '' : `${exams.length} exam${exams.length === 1 ? '' : 's'}`} flush>
+        {loading ? (
+          <div className={ui.tableState}>
+            <LoadingState label="Loading exams…" />
+          </div>
+        ) : exams.length === 0 ? (
+          <div className={ui.emptyCenter}>
             <QuizEmptyIllustration />
-            <AssessmentMeta strong>No exams scheduled yet.</AssessmentMeta>
+            <p className={ui.emptyHint}>No exams scheduled yet.</p>
           </div>
         ) : (
-          <ul className={s.list}>
-            {exams.map((exam) => {
-              const studentState = getStudentExamUiState(exam);
-              const participants = participantsByExam[exam.id] || [];
-              const participation = computeExamParticipation(participants, enrollmentCount);
-
-              return (
-                <li key={exam.id}>
-                  <AssessmentCard as="article">
-                    <CardTitleRow
-                      title={exam.title}
-                      aside={
-                        <StatusBadge variant={studentState.badgeVariant}>
-                          {isLecturer
-                            ? (exam.is_released ? (exam.window_status === 'open' ? 'Active' : exam.window_status) : 'Draft')
-                            : studentState.label}
-                        </StatusBadge>
-                      }
-                    />
-                    <AssessmentMeta>{windowLabel(exam)} · {exam.duration_minutes} min</AssessmentMeta>
-
-                    {isLecturer ? (
-                      <AssessmentToolbar>
-                        {!exam.is_released ? (
-                          <BtnAccent type="button" onClick={() => releaseExam(exam.id)}>Release to students</BtnAccent>
-                        ) : null}
-                        <BtnSecondary type="button" onClick={() => toggleParticipants(exam.id)}>
-                          {openParticipantsExamId === exam.id ? 'Hide participation' : 'Participation'}
-                        </BtnSecondary>
-                        <BtnPrimary type="button" onClick={() => downloadExam(exam)}>Download paper</BtnPrimary>
-                      </AssessmentToolbar>
-                    ) : (
-                      <AssessmentToolbar>
-                        <BtnPrimary
-                          type="button"
-                          onClick={() => downloadExam(exam)}
-                          disabled={!studentState.canDownload}
-                        >
-                          {studentState.buttonLabel}
-                        </BtnPrimary>
-                      </AssessmentToolbar>
-                    )}
-
-                    {exam.myAccess?.accessed_at && !isLecturer ? (
-                      <>
-                        <AssessmentDivider />
-                        <AssessmentAlert type="success">
-                          You accessed this exam on {new Date(exam.myAccess.accessed_at).toLocaleString()}.
-                        </AssessmentAlert>
-                      </>
-                    ) : null}
-
-                    {isLecturer && openParticipantsExamId === exam.id ? (
-                      <div className={s.queue}>
-                        <div className={qstyles.lecturerStats}>
-                          <div className={qstyles.lecturerStat}>
-                            <strong>{participation.completed}</strong>
-                            <span>Accessed</span>
-                          </div>
-                          <div className={qstyles.lecturerStat}>
-                            <strong>{participation.rate}%</strong>
-                            <span>Participation</span>
-                          </div>
-                        </div>
-                        {participants.length === 0 ? (
-                          <AssessmentMeta>No students have accessed this exam yet.</AssessmentMeta>
-                        ) : (
-                          participants.map((row) => (
-                            <QueueItem key={row.id}>
-                              <AssessmentMeta strong>{row.student?.full_name || row.student?.email}</AssessmentMeta>
-                              <AssessmentMeta>Accessed {new Date(row.accessed_at).toLocaleString()}</AssessmentMeta>
-                            </QueueItem>
-                          ))
-                        )}
-                      </div>
-                    ) : null}
-                  </AssessmentCard>
-                </li>
-              );
-            })}
-          </ul>
+          <DataTable
+            hideToolbar
+            query={tableQuery}
+            onQueryChange={setTableQuery}
+            columns={columns}
+            rows={exams}
+            rowKey={(ex) => ex.id}
+            searchFn={(exam, q) => `${exam.title} ${windowLabel(exam)}`.toLowerCase().includes(q)}
+            emptyMessage="No exams match your search."
+          />
         )}
-      </CoursePageFrame>
-    </AssessmentShell>
+      </Panel>
+
+      {isLecturer && openParticipantsExamId && openExam ? (
+        <Panel
+          title={`Participation · ${openExam.title}`}
+          lead={participation ? `${participation.completed} accessed · ${participation.rate}% participation` : ''}
+        >
+          {openParticipants.length === 0 ? (
+            <EmptyState message="No students have accessed this exam yet." />
+          ) : (
+            <ul className={ui.oversightList}>
+              {openParticipants.map((row) => (
+                <li key={row.id} className={ui.oversightItem}>
+                  <div>
+                    <strong>{row.student?.full_name || row.student?.email || 'Student'}</strong>
+                    <p className={ui.oversightMeta}>
+                      Accessed {new Date(row.accessed_at).toLocaleString()}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
+      ) : null}
+    </AssessmentWorkspace>
   );
 }
-

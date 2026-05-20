@@ -1,13 +1,19 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import api from '../config/api';
 import { useKeycloak } from '../auth/AuthProvider';
-
-const cardStyle = {
-  background: '#fff',
-  borderRadius: 10,
-  padding: 18,
-  boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
-};
+import {
+  WorkspacePageShell,
+  PageActions,
+  DataTable,
+  TableActions,
+  Panel,
+  Button,
+  ConfirmDialog,
+  SearchInput,
+  FilterSelect
+} from '../components/ui';
+import StatusPill from '../components/ui/StatusPill';
+import ui from '../components/ui/system.module.css';
 
 const emptyForm = {
   full_name: '',
@@ -23,6 +29,12 @@ const emptyForm = {
   is_active: true
 };
 
+function rolePillVariant(role) {
+  if (role === 'admin') return 'admin';
+  if (role === 'lecturer') return 'lecturer';
+  return 'student';
+}
+
 export default function Users() {
   const { keycloak } = useKeycloak();
   const currentUserId = keycloak.tokenParsed?.sub;
@@ -33,12 +45,13 @@ export default function Users() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [roleFilter, setRoleFilter] = useState('all');
+  const [confirm, setConfirm] = useState(null);
+  const [dirQuery, setDirQuery] = useState('');
 
   const isEditing = Boolean(editingId);
   const isLecturer = form.role === 'lecturer';
   const isStudent = form.role === 'student';
-
-  const sortedUsers = useMemo(() => users, [users]);
 
   const loadUsers = async () => {
     setLoading(true);
@@ -56,6 +69,12 @@ export default function Users() {
   useEffect(() => {
     loadUsers();
   }, []);
+
+  const tableRows = useMemo(() => {
+    let list = users;
+    if (roleFilter !== 'all') list = list.filter((u) => u.role === roleFilter);
+    return list;
+  }, [users, roleFilter]);
 
   const resetForm = () => {
     setForm(emptyForm);
@@ -112,10 +131,7 @@ export default function Users() {
     });
   };
 
-  const handleDelete = async (user) => {
-    const confirmed = window.confirm(`Delete ${user.full_name}?`);
-    if (!confirmed) return;
-
+  const runDelete = async (user) => {
     setError('');
     setMessage('');
     try {
@@ -128,7 +144,7 @@ export default function Users() {
     }
   };
 
-  const handleResetLecturerPassword = async (user) => {
+  const runResetPassword = async (user) => {
     setError('');
     setMessage('');
     try {
@@ -139,159 +155,310 @@ export default function Users() {
           : `Default lecturer password for ${user.full_name}: ${res.data?.default_password}`
       );
     } catch (err) {
-      setError(err?.response?.data?.error || 'Failed to fetch lecturer default password');
+      setError(err?.response?.data?.error || 'Failed to reset password');
     }
   };
 
+  const columns = [
+    {
+      key: 'name',
+      label: 'Name',
+      render: (user) => (
+        <div className={ui.cellStack}>
+          <span className={ui.cellPrimary}>{user.full_name}</span>
+          <span className={ui.cellMuted}>{user.email}</span>
+        </div>
+      )
+    },
+    {
+      key: 'role',
+      label: 'Role',
+      render: (user) => (
+        <StatusPill variant={rolePillVariant(user.role)}>{user.role}</StatusPill>
+      )
+    },
+    {
+      key: 'status',
+      label: 'Status',
+      hideOnMobile: true,
+      render: (user) => (
+        <StatusPill variant={user.is_active !== false ? 'active' : 'inactive'}>
+          {user.is_active !== false ? 'Active' : 'Inactive'}
+        </StatusPill>
+      )
+    },
+    {
+      key: 'detail',
+      label: 'Details',
+      hideOnMobile: true,
+      render: (user) => {
+        if (user.role === 'student') {
+          return (
+            <span className={ui.cellMuted}>
+              {user.student_id || '—'}
+              {user.program ? ` · ${user.program}` : ''}
+            </span>
+          );
+        }
+        if (user.role === 'lecturer') {
+          return <span className={ui.cellMuted}>{user.institution || user.staff_email || '—'}</span>;
+        }
+        return <span className={ui.cellMuted}>—</span>;
+      }
+    },
+    {
+      key: 'actions',
+      label: 'Actions',
+      render: (user) => (
+        <TableActions>
+          {user.role !== 'admin' ? (
+            <Button type="button" variant="ghost" onClick={() => handleEdit(user)}>
+              Edit
+            </Button>
+          ) : null}
+          {user.role === 'lecturer' ? (
+            <Button type="button" variant="ghost" onClick={() => runResetPassword(user)}>
+              Reset password
+            </Button>
+          ) : null}
+          {user.role !== 'admin' && user.id !== currentUserId ? (
+            <Button
+              type="button"
+              variant="danger"
+              onClick={() => setConfirm({
+                title: 'Delete user',
+                message: `Remove ${user.full_name} from the institution? This cannot be undone.`,
+                danger: true,
+                onConfirm: () => {
+                  setConfirm(null);
+                  runDelete(user);
+                }
+              })}
+            >
+              Delete
+            </Button>
+          ) : null}
+        </TableActions>
+      )
+    }
+  ];
+
   return (
-    <div>
-      <h2>System Users</h2>
-      <p style={{ color: '#666', marginTop: 6 }}>
-        Admins can add, update, delete, and manage lecturer account defaults from here.
-      </p>
+    <WorkspacePageShell lead="Maintain lecturer and student accounts, roles, and institutional access defaults.">
+      <PageActions
+        search={(
+          <SearchInput
+            placeholder="Search directory by name or email…"
+            value={dirQuery}
+            onChange={(e) => setDirQuery(e.target.value)}
+            aria-label="Search user directory"
+          />
+        )}
+        filters={(
+          <FilterSelect
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value)}
+            aria-label="Filter by role"
+          >
+            <option value="all">All roles</option>
+            <option value="lecturer">Lecturers</option>
+            <option value="student">Students</option>
+            <option value="admin">Admins</option>
+          </FilterSelect>
+        )}
+        actions={(
+          <>
+            {isEditing ? (
+              <Button type="button" variant="ghost" onClick={resetForm}>
+                Cancel edit
+              </Button>
+            ) : null}
+            <Button type="button" variant="primary" onClick={resetForm}>
+              Add user
+            </Button>
+          </>
+        )}
+      />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 420px) 1fr', gap: 18, marginTop: 18 }}>
-        <form onSubmit={handleSubmit} style={cardStyle}>
-          <h3 style={{ marginTop: 0 }}>{isEditing ? 'Update User' : 'Add User'}</h3>
+      {message ? <div className={`${ui.notice} ${ui.noticeSuccess}`}>{message}</div> : null}
+      {error ? <div className={`${ui.notice} ${ui.noticeError}`}>{error}</div> : null}
 
-          <div style={{ display: 'grid', gap: 10 }}>
-            <input value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} placeholder="Full name" required style={inputStyle} />
-            <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Email" required style={inputStyle} />
-            <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} style={inputStyle}>
-              <option value="lecturer">Lecturer</option>
-              <option value="student">Student</option>
-            </select>
+      <div className={ui.splitLayout}>
+        <form onSubmit={handleSubmit} className={`${ui.panel} ${ui.formPanel}`}>
+          <div className={ui.panelHeader}>
+            <h2 className={ui.panelTitle}>{isEditing ? 'Edit user' : 'New user'}</h2>
+            <p className={ui.panelLead}>Lecturers receive the configured default password when created.</p>
+          </div>
+          <div className={ui.panelBody}>
+            <div className={ui.field}>
+              <label htmlFor="user-full-name">Full name</label>
+              <input
+                id="user-full-name"
+                className={ui.input}
+                value={form.full_name}
+                onChange={(e) => setForm({ ...form, full_name: e.target.value })}
+                required
+              />
+            </div>
+            <div className={ui.field}>
+              <label htmlFor="user-email">Email</label>
+              <input
+                id="user-email"
+                type="email"
+                className={ui.input}
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                required
+              />
+            </div>
+            <div className={ui.field}>
+              <label htmlFor="user-role">Role</label>
+              <select
+                id="user-role"
+                className={ui.select}
+                value={form.role}
+                onChange={(e) => setForm({ ...form, role: e.target.value })}
+              >
+                <option value="lecturer">Lecturer</option>
+                <option value="student">Student</option>
+              </select>
+            </div>
 
-            {isLecturer && (
+            {isLecturer ? (
               <>
-                <input value={form.institution} onChange={(e) => setForm({ ...form, institution: e.target.value })} placeholder="Institution" required={isLecturer} style={inputStyle} />
-                <input type="email" value={form.staff_email} onChange={(e) => setForm({ ...form, staff_email: e.target.value })} placeholder="Staff email" required={isLecturer} style={inputStyle} />
-              </>
-            )}
-
-            {isStudent && (
-              <>
-                <input value={form.student_id} onChange={(e) => setForm({ ...form, student_id: e.target.value })} placeholder="Student ID" required={isStudent} style={inputStyle} />
-                <input value={form.program} onChange={(e) => setForm({ ...form, program: e.target.value })} placeholder="Program" required={isStudent} style={inputStyle} />
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                  <input type="number" value={form.year_of_study} onChange={(e) => setForm({ ...form, year_of_study: e.target.value })} placeholder="Year" required={isStudent} style={inputStyle} />
-                  <input type="number" value={form.semester} onChange={(e) => setForm({ ...form, semester: e.target.value })} placeholder="Semester" required={isStudent} style={inputStyle} />
+                <div className={ui.field}>
+                  <label htmlFor="user-institution">Institution</label>
+                  <input
+                    id="user-institution"
+                    className={ui.input}
+                    value={form.institution}
+                    onChange={(e) => setForm({ ...form, institution: e.target.value })}
+                    required={isLecturer}
+                  />
                 </div>
-                <select value={form.mode} onChange={(e) => setForm({ ...form, mode: e.target.value })} style={inputStyle}>
-                  <option value="Full-time">Full-time</option>
-                  <option value="Evening">Evening</option>
-                  <option value="ODL">ODL</option>
-                </select>
+                <div className={ui.field}>
+                  <label htmlFor="user-staff-email">Staff email</label>
+                  <input
+                    id="user-staff-email"
+                    type="email"
+                    className={ui.input}
+                    value={form.staff_email}
+                    onChange={(e) => setForm({ ...form, staff_email: e.target.value })}
+                    required={isLecturer}
+                  />
+                </div>
               </>
-            )}
+            ) : null}
 
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#555', fontSize: '0.92rem' }}>
-              <input type="checkbox" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />
+            {isStudent ? (
+              <>
+                <div className={ui.field}>
+                  <label htmlFor="user-student-id">Student ID</label>
+                  <input
+                    id="user-student-id"
+                    className={ui.input}
+                    value={form.student_id}
+                    onChange={(e) => setForm({ ...form, student_id: e.target.value })}
+                    required={isStudent}
+                  />
+                </div>
+                <div className={ui.field}>
+                  <label htmlFor="user-program">Program</label>
+                  <input
+                    id="user-program"
+                    className={ui.input}
+                    value={form.program}
+                    onChange={(e) => setForm({ ...form, program: e.target.value })}
+                    required={isStudent}
+                  />
+                </div>
+                <div className={ui.fieldRow}>
+                  <div className={ui.field}>
+                    <label htmlFor="user-year">Year</label>
+                    <input
+                      id="user-year"
+                      type="number"
+                      className={ui.input}
+                      value={form.year_of_study}
+                      onChange={(e) => setForm({ ...form, year_of_study: e.target.value })}
+                      required={isStudent}
+                    />
+                  </div>
+                  <div className={ui.field}>
+                    <label htmlFor="user-semester">Semester</label>
+                    <input
+                      id="user-semester"
+                      type="number"
+                      className={ui.input}
+                      value={form.semester}
+                      onChange={(e) => setForm({ ...form, semester: e.target.value })}
+                      required={isStudent}
+                    />
+                  </div>
+                </div>
+                <div className={ui.field}>
+                  <label htmlFor="user-mode">Mode</label>
+                  <select
+                    id="user-mode"
+                    className={ui.select}
+                    value={form.mode}
+                    onChange={(e) => setForm({ ...form, mode: e.target.value })}
+                  >
+                    <option value="Full-time">Full-time</option>
+                    <option value="Evening">Evening</option>
+                    <option value="ODL">ODL</option>
+                  </select>
+                </div>
+              </>
+            ) : null}
+
+            <label className={ui.checkboxRow}>
+              <input
+                type="checkbox"
+                checked={form.is_active}
+                onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
+              />
               Active account
             </label>
-          </div>
 
-          <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
-            <button type="submit" disabled={saving} style={primaryButtonStyle}>
-              {saving ? 'Saving...' : isEditing ? 'Update User' : 'Create User'}
-            </button>
-            {isEditing && (
-              <button type="button" onClick={resetForm} style={secondaryButtonStyle}>
-                Cancel
-              </button>
-            )}
+            <div className={ui.formActions}>
+              <Button type="submit" variant="primary" disabled={saving}>
+                {saving ? 'Saving…' : isEditing ? 'Save changes' : 'Create user'}
+              </Button>
+            </div>
           </div>
-
-          <p style={{ color: '#777', fontSize: '0.85rem', marginTop: 12 }}>
-            Lecturer accounts use the configured default lecturer password for first login.
-          </p>
         </form>
 
-        <div style={cardStyle}>
-          <h3 style={{ marginTop: 0 }}>User Directory</h3>
-
-          {message && <div style={{ ...noticeStyle, background: '#ecfdf3', color: '#027a48', border: '1px solid #abefc6' }}>{message}</div>}
-          {error && <div style={{ ...noticeStyle, background: '#fef3f2', color: '#b42318', border: '1px solid #fecdca' }}>{error}</div>}
-          {loading && <p>Loading users...</p>}
-
-          <div style={{ display: 'grid', gap: 10 }}>
-            {sortedUsers.map((user) => (
-              <div key={user.id} style={{ border: '1px solid #edf1f7', borderRadius: 8, padding: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-                  <div>
-                    <strong>{user.full_name}</strong>
-                    <p style={{ margin: '4px 0 0', color: '#666', fontSize: '0.9rem' }}>{user.email}</p>
-                    <p style={{ margin: '4px 0 0', color: '#888', fontSize: '0.84rem' }}>
-                      Role: {user.role} {user.is_active ? '· Active' : '· Inactive'}
-                    </p>
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {user.role !== 'admin' && (
-                      <button onClick={() => handleEdit(user)} style={secondaryButtonStyle}>Edit</button>
-                    )}
-                    {user.role === 'lecturer' && (
-                      <button onClick={() => handleResetLecturerPassword(user)} style={accentButtonStyle}>Default Password</button>
-                    )}
-                    {user.role !== 'admin' && user.id !== currentUserId && (
-                      <button onClick={() => handleDelete(user)} style={dangerButtonStyle}>Delete</button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        <Panel
+          title="Directory"
+          lead={`${users.length} account${users.length === 1 ? '' : 's'}`}
+          flush
+        >
+          <DataTable
+            hideToolbar
+            query={dirQuery}
+            onQueryChange={setDirQuery}
+            columns={columns}
+            rows={tableRows}
+            rowKey={(u) => u.id}
+            loading={loading}
+            searchFn={(user, q) => {
+              const hay = `${user.full_name} ${user.email} ${user.student_id || ''} ${user.program || ''}`.toLowerCase();
+              return hay.includes(q);
+            }}
+            emptyMessage="No users match your filters."
+          />
+        </Panel>
       </div>
-    </div>
+
+      <ConfirmDialog
+        open={Boolean(confirm)}
+        title={confirm?.title}
+        message={confirm?.message}
+        danger={confirm?.danger}
+        onConfirm={confirm?.onConfirm}
+        onCancel={() => setConfirm(null)}
+      />
+    </WorkspacePageShell>
   );
 }
-
-const inputStyle = {
-  padding: '9px 10px',
-  borderRadius: 8,
-  border: '1px solid #d9dce3'
-};
-
-const primaryButtonStyle = {
-  background: '#4f8ef7',
-  color: '#fff',
-  border: 'none',
-  borderRadius: 8,
-  padding: '9px 14px',
-  cursor: 'pointer',
-  fontWeight: 600
-};
-
-const secondaryButtonStyle = {
-  background: '#fff',
-  color: '#344054',
-  border: '1px solid #d0d5dd',
-  borderRadius: 8,
-  padding: '9px 12px',
-  cursor: 'pointer'
-};
-
-const accentButtonStyle = {
-  background: '#ecf2ff',
-  color: '#1d4ed8',
-  border: '1px solid #c7d7fe',
-  borderRadius: 8,
-  padding: '8px 10px',
-  cursor: 'pointer'
-};
-
-const dangerButtonStyle = {
-  background: '#fff1f2',
-  color: '#b42318',
-  border: '1px solid #fecdca',
-  borderRadius: 8,
-  padding: '8px 10px',
-  cursor: 'pointer'
-};
-
-const noticeStyle = {
-  borderRadius: 8,
-  padding: '10px 12px',
-  marginBottom: 12,
-  fontSize: '0.92rem'
-};

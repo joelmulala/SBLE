@@ -1,14 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useKeycloak } from '../../auth/AuthProvider';
 import api from '../../config/api';
-
-const cardStyle = {
-  background: '#fff',
-  borderRadius: 10,
-  padding: 16,
-  boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
-  border: '1px solid #e7ecf5'
-};
+import {
+  WorkspacePageShell,
+  PageActions,
+  DataTable,
+  TableActions,
+  Panel,
+  Button,
+  SearchInput
+} from '../ui';
+import ui from '../ui/system.module.css';
 
 const emptyForm = {
   title: '',
@@ -16,6 +18,8 @@ const emptyForm = {
 };
 
 export default function CourseManagementPage() {
+  const { keycloak } = useKeycloak();
+  const isAdmin = keycloak.hasRealmRole('admin');
   const [courses, setCourses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -23,6 +27,7 @@ export default function CourseManagementPage() {
   const [editingId, setEditingId] = useState(null);
   const [error, setError] = useState('');
   const [form, setForm] = useState(emptyForm);
+  const [tableQuery, setTableQuery] = useState('');
 
   const loadCourses = async () => {
     setLoading(true);
@@ -85,119 +90,132 @@ export default function CourseManagementPage() {
     }
   };
 
-  return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <div>
-          <h2 style={{ marginBottom: 6 }}>Course Management</h2>
-          <p style={{ color: '#667085', margin: 0 }}>Manage your course list from one clean page.</p>
+  const columns = [
+    {
+      key: 'title',
+      label: 'Course',
+      render: (course) => (
+        <div className={ui.cellStack}>
+          <span className={ui.cellPrimary}>{course.title}</span>
+          <span className={ui.cellMuted}>{course.description || 'No description'}</span>
         </div>
+      )
+    },
+    {
+      key: 'id',
+      label: 'ID',
+      hideOnMobile: true,
+      render: (course) => <span className={ui.cellMuted}>{course.id}</span>
+    },
+    {
+      key: 'actions',
+      label: 'Actions',
+      render: (course) => (
+        <TableActions>
+          <Button type="button" variant="ghost" onClick={() => handleEdit(course)}>
+            Edit
+          </Button>
+          <Button to={`/lecturer/courses/${course.id}`} variant="ghost">
+            Open
+          </Button>
+          <Button to={`/lecturer/courses/${course.id}/enrollment`} variant="ghost">
+            Enrollment
+          </Button>
+        </TableActions>
+      )
+    }
+  ];
 
-        <button
-          type="button"
-          onClick={() => {
-            if (showForm && !editingId) {
-              resetForm();
-            } else {
-              setForm(emptyForm);
-              setEditingId(null);
-              setShowForm(true);
-            }
-          }}
-          style={primaryButtonStyle}
-        >
-          {showForm && !editingId ? 'Close Form' : 'Create Course'}
-        </button>
-      </div>
+  return (
+    <WorkspacePageShell
+      lead={isAdmin
+        ? 'Review and maintain the institution course catalog.'
+        : 'Manage your assigned courses from one workspace.'}
+    >
+      <PageActions
+        search={(
+          <SearchInput
+            placeholder="Search catalog…"
+            value={tableQuery}
+            onChange={(e) => setTableQuery(e.target.value)}
+            aria-label="Search courses"
+          />
+        )}
+        actions={(
+          <Button
+            type="button"
+            variant="primary"
+            onClick={() => {
+              if (showForm && !editingId) resetForm();
+              else {
+                setForm(emptyForm);
+                setEditingId(null);
+                setShowForm(true);
+              }
+            }}
+          >
+            {showForm && !editingId ? 'Close form' : 'Create course'}
+          </Button>
+        )}
+      />
 
-      {showForm && (
-        <form onSubmit={saveCourse} style={{ ...cardStyle, marginTop: 16, maxWidth: 620 }}>
-          <h3 style={{ marginTop: 0 }}>{editingId ? 'Edit Course' : 'Create Course'}</h3>
-          <input
-            value={form.title}
-            onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
-            placeholder="Course title"
-            required
-            style={{ width: '100%', padding: '9px 10px', borderRadius: 6, border: '1px solid #ddd', marginBottom: 10 }}
-          />
-          <textarea
-            value={form.description}
-            onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
-            placeholder="Course description"
-            rows={3}
-            style={{ width: '100%', padding: '9px 10px', borderRadius: 6, border: '1px solid #ddd', resize: 'vertical' }}
-          />
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
-            <button type="submit" disabled={saving} style={primaryButtonStyle}>
-              {saving ? 'Saving...' : editingId ? 'Update Course' : 'Create Course'}
-            </button>
-            <button type="button" onClick={resetForm} style={secondaryButtonStyle}>
-              Cancel
-            </button>
+      {error ? <div className={`${ui.notice} ${ui.noticeError}`}>{error}</div> : null}
+
+      {showForm ? (
+        <form onSubmit={saveCourse} className={ui.panel}>
+          <div className={ui.panelHeader}>
+            <h2 className={ui.panelTitle}>{editingId ? 'Edit course' : 'New course'}</h2>
+          </div>
+          <div className={ui.panelBody}>
+            <div className={ui.field}>
+              <label htmlFor="course-title">Title</label>
+              <input
+                id="course-title"
+                className={ui.input}
+                value={form.title}
+                onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
+                required
+              />
+            </div>
+            <div className={ui.field}>
+              <label htmlFor="course-desc">Description</label>
+              <textarea
+                id="course-desc"
+                className={ui.textarea}
+                value={form.description}
+                onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
+                rows={3}
+              />
+            </div>
+            <div className={ui.formActions}>
+              <Button type="submit" variant="primary" disabled={saving}>
+                {saving ? 'Saving…' : editingId ? 'Save changes' : 'Create course'}
+              </Button>
+              <Button type="button" variant="ghost" onClick={resetForm}>
+                Cancel
+              </Button>
+            </div>
           </div>
         </form>
-      )}
+      ) : null}
 
-      {error && <p style={{ color: '#c0392b', marginTop: 12 }}>{error}</p>}
-
-      <div style={{ marginTop: 20 }}>
-        <h3 style={{ marginBottom: 12 }}>Your Courses</h3>
-        {loading && <p>Loading courses...</p>}
-        {!loading && courses.length === 0 && <p style={{ color: '#777' }}>No courses found.</p>}
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
-          {courses.map((course) => (
-            <div key={course.id} style={cardStyle}>
-              <strong style={{ fontSize: '1rem' }}>{course.title}</strong>
-              <p style={{ color: '#666', fontSize: '0.9rem', marginTop: 8, minHeight: 42 }}>
-                {course.description || 'No description provided.'}
-              </p>
-              <p style={{ color: '#999', fontSize: '0.8rem', marginTop: 8 }}>Course ID: {course.id}</p>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
-                <button type="button" onClick={() => handleEdit(course)} style={primaryButtonStyle}>
-                  Edit Course
-                </button>
-                <Link to={`/lecturer/courses/${course.id}`} style={openCourseLinkStyle}>Open Course</Link>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
+      <Panel title="Catalog" lead={`${courses.length} course${courses.length === 1 ? '' : 's'}`} flush>
+        <DataTable
+          hideToolbar
+          query={tableQuery}
+          onQueryChange={setTableQuery}
+          columns={columns}
+          rows={courses}
+          rowKey={(c) => c.id}
+          loading={loading}
+          searchPlaceholder="Search courses…"
+          searchFn={(course, q) => {
+            const hay = `${course.title} ${course.description || ''} ${course.id}`.toLowerCase();
+            return hay.includes(q);
+          }}
+          emptyMessage="No courses found."
+        />
+      </Panel>
+    </WorkspacePageShell>
   );
 }
-
-const primaryButtonStyle = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  background: '#4f8ef7',
-  color: '#fff',
-  border: 'none',
-  borderRadius: 8,
-  padding: '9px 12px',
-  minHeight: 38,
-  cursor: 'pointer',
-  fontWeight: 600,
-  fontSize: '0.85rem'
-};
-
-const secondaryButtonStyle = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  background: '#fff',
-  color: '#344054',
-  border: '1px solid #d0d5dd',
-  borderRadius: 8,
-  padding: '9px 12px',
-  minHeight: 38,
-  cursor: 'pointer',
-  fontWeight: 600,
-  fontSize: '0.85rem'
-};
-
-const openCourseLinkStyle = {
-  ...secondaryButtonStyle,
-  textDecoration: 'none'
-};

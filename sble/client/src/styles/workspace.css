@@ -19,6 +19,10 @@
   max-width: 1280px;
 }
 
+.wk-container--admin {
+  max-width: 1320px;
+}
+
 .wk-stack {
   display: grid;
   gap: var(--space-6);
@@ -169,4 +173,39 @@
     padding-left: var(--space-4);
     padding-right: var(--space-4);
   }
+}
+
+/* Page overflow guard — prevents horizontal scroll from nested grids */
+.wk-overflow-guard {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: clip;
+}
+
+.wk-scroll-region {
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+}
+
+.wk-scroll-region:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-brand) 40%, transparent);
+  outline-offset: 2px;
+}
+
+.app-button:disabled,
+.app-button[aria-disabled='true'] {
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.app-button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.touch-target {
+  min-height: var(--touch-min);
+  min-width: var(--touch-min);
 }
