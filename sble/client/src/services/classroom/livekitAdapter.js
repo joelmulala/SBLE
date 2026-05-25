@@ -532,8 +532,11 @@ export class LiveKitClassroomMediaAdapter extends ClassroomMediaAdapter {
     const intentional = this._intentionalDisconnect;
     this._intentionalDisconnect = false;
     this._applyDisconnectedCleanup();
-    if (!intentional && this._sbRole === 'lecturer') {
-      this._emitConnection({ type: 'local_left_session', role: 'lecturer' });
+    if (!intentional) {
+      this._emitConnection({ type: 'session_disconnected' });
+      if (this._sbRole === 'lecturer') {
+        this._emitConnection({ type: 'local_left_session', role: 'lecturer' });
+      }
     }
   };
 
@@ -561,7 +564,7 @@ export class LiveKitClassroomMediaAdapter extends ClassroomMediaAdapter {
   async _runConnect(options) {
     const roomId = options.roomId;
     try {
-      const res = await api.post(`rooms/${encodeURIComponent(roomId)}/livekit-token`, {});
+      const res = await api.post(`/rooms/${encodeURIComponent(roomId)}/livekit-token`, {});
       if (this._getDisposed()) return;
 
       const { data, status } = res;
@@ -584,7 +587,8 @@ export class LiveKitClassroomMediaAdapter extends ClassroomMediaAdapter {
         return;
       }
 
-      const room = new Room({ adaptiveStream: true, dynacast: true });
+      // adaptiveStream off: hidden/opacity-0 tiles must not block camera subscribe + attach
+      const room = new Room({ adaptiveStream: false, dynacast: true });
       this._room = room;
       this._bindRoom(room);
 

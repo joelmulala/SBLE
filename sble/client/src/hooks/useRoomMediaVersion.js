@@ -43,8 +43,17 @@ export default function useRoomMediaVersion(room, participant = null) {
         RoomEvent.Reconnected
       ];
 
+    const onTrackMuted = (_pub, p) => {
+      if (match(p)) bump();
+    };
+    const onTrackUnmuted = (_pub, p) => {
+      if (match(p)) bump();
+    };
+
     room.on(RoomEvent.TrackSubscribed, onTrackSubscribed);
     room.on(RoomEvent.TrackUnsubscribed, onTrackUnsubscribed);
+    room.on(RoomEvent.TrackMuted, onTrackMuted);
+    room.on(RoomEvent.TrackUnmuted, onTrackUnmuted);
     room.on(RoomEvent.LocalTrackPublished, onLocalPublished);
     room.on(RoomEvent.LocalTrackUnpublished, onLocalUnpublished);
     room.on(RoomEvent.ParticipantMetadataChanged, onMeta);
@@ -57,6 +66,8 @@ export default function useRoomMediaVersion(room, participant = null) {
     return () => {
       room.off(RoomEvent.TrackSubscribed, onTrackSubscribed);
       room.off(RoomEvent.TrackUnsubscribed, onTrackUnsubscribed);
+      room.off(RoomEvent.TrackMuted, onTrackMuted);
+      room.off(RoomEvent.TrackUnmuted, onTrackUnmuted);
       room.off(RoomEvent.LocalTrackPublished, onLocalPublished);
       room.off(RoomEvent.LocalTrackUnpublished, onLocalUnpublished);
       room.off(RoomEvent.ParticipantMetadataChanged, onMeta);

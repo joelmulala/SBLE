@@ -25,7 +25,10 @@ export default function PresentationStage({ room, presenter, activeSpeakerId = n
     const bind = () => {
       if (cancelled || !videoRef.current || !track) return;
       try {
+        track.detach(videoRef.current);
         track.attach(videoRef.current);
+        const p = videoRef.current.play?.();
+        if (p && typeof p.catch === 'function') p.catch(() => {});
       } catch (_) { /* ignore */ }
     };
 

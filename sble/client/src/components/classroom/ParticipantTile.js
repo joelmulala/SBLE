@@ -18,7 +18,12 @@ function roleLabel(metadata) {
 function attachVideoTrack(track, el) {
   if (!track || !el) return;
   try {
+    track.detach(el);
     track.attach(el);
+    const playPromise = el.play?.();
+    if (playPromise && typeof playPromise.catch === 'function') {
+      playPromise.catch(() => {});
+    }
   } catch (_) { /* ignore */ }
 }
 
@@ -51,8 +56,10 @@ export default function ParticipantTile({
 
   const camPub = participant.getTrackPublication(Track.Source.Camera);
   const screenPub = participant.getTrackPublication(Track.Source.ScreenShare);
-  const hasCameraTrack = Boolean(camPub?.track);
+  const cameraTrack = camPub?.track;
+  const hasCameraTrack = Boolean(cameraTrack);
   const hasScreen = Boolean(screenPub?.track);
+  const showAvatar = !hasCameraTrack && !participant.isCameraEnabled;
 
   useEffect(() => {
     const camEl = camRef.current;
@@ -65,29 +72,39 @@ export default function ParticipantTile({
 
     const bind = () => {
       if (cancelled) return;
-      if (camPublication?.track && camEl) {
-        attachVideoTrack(camPublication.track, camEl);
-        attached.push({ track: camPublication.track, el: camEl });
+      const camTrack = camPublication?.track;
+      const screenTrack = screenPubInner?.track;
+      if (camTrack && camEl) {
+        attachVideoTrack(camTrack, camEl);
+        attached.push({ track: camTrack, el: camEl });
       }
-      if (screenPubInner?.track && screenEl) {
-        attachVideoTrack(screenPubInner.track, screenEl);
-        attached.push({ track: screenPubInner.track, el: screenEl });
+      if (screenTrack && screenEl) {
+        attachVideoTrack(screenTrack, screenEl);
+        attached.push({ track: screenTrack, el: screenEl });
       }
     };
 
     bind();
     rafId = requestAnimationFrame(bind);
 
+    const onPublicationUpdate = () => {
+      if (!cancelled) bind();
+    };
+    camPublication?.on?.('subscribed', onPublicationUpdate);
+    screenPubInner?.on?.('subscribed', onPublicationUpdate);
+
     return () => {
       cancelled = true;
       if (rafId) cancelAnimationFrame(rafId);
+      camPublication?.off?.('subscribed', onPublicationUpdate);
+      screenPubInner?.off?.('subscribed', onPublicationUpdate);
       attached.forEach(({ track, el }) => {
         try {
           track.detach(el);
         } catch (_) { /* ignore */ }
       });
     };
-  }, [participant, version]);
+  }, [participant, version, cameraTrack, screenPub?.track]);
 
   useEffect(() => {
     const host = audioMountRef.current;
@@ -140,14 +157,14 @@ export default function ParticipantTile({
           Instructor
         </span>
       ) : null}
-      {!hasCameraTrack ? (
+      {showAvatar ? (
         <div className={styles.tileAvatar} aria-hidden>
           {avatarInitial}
         </div>
       ) : null}
       <video
         ref={camRef}
-        className={[styles.tileVideo, !hasCameraTrack && styles.tileVideoHidden].filter(Boolean).join(' ')}
+        className={styles.tileVideo}
         autoPlay
         playsInline
         muted={isLocalParticipant(participant)}

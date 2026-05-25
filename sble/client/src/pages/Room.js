@@ -320,6 +320,18 @@ export default function Room() {
             }, 12000);
           }
           break;
+        case 'session_disconnected':
+          setLiveKitRoom(null);
+          setMediaSessionActive(false);
+          setIsLoading(false);
+          setReconnecting(false);
+          setSessionStartedAt(null);
+          lecturerSessionLiveRef.current = false;
+          if (userRoleRef.current === 'student') {
+            studentJoinedIntentRef.current = false;
+            setStudentJoinedIntent(false);
+          }
+          break;
         case 'local_left_session':
           if (evt.role === 'lecturer') {
             exitLiveClassRef.current('Class ended', { closeOnServer: true });
@@ -371,7 +383,12 @@ export default function Room() {
         container: USE_LIVEKIT ? null : mediaContainerRef.current,
         getDisposed: () => disposed,
         onRtcRoom: USE_LIVEKIT ? (r) => {
-          if (!disposed) setLiveKitRoom(r);
+          if (disposed) return;
+          setLiveKitRoom(r || null);
+          if (!r) {
+            setMediaSessionActive(false);
+            setIsLoading(false);
+          }
         } : undefined
       });
     };
@@ -451,9 +468,6 @@ export default function Room() {
       disposed = true;
       studentJoinedIntentRef.current = false;
       if (pollTimer) clearInterval(pollTimer);
-      if (userRoleRef.current === 'lecturer' && activeRoomId && lecturerSessionLiveRef.current) {
-        closeRoomOnServer();
-      }
       lecturerSessionLiveRef.current = false;
       chatSystemKeysRef.current.clear();
       chatParticipantInitRef.current = false;
@@ -473,7 +487,13 @@ export default function Room() {
       setLiveKitRoom(null);
       setMediaSessionActive(false);
     };
-  }, [activeRoomId, user.name, user.role, closeRoomOnServer]);
+  }, [activeRoomId, user.name, user.role]);
+
+  useEffect(() => {
+    if (!USE_LIVEKIT || liveKitRoom || !mediaSessionActive) return;
+    setMediaSessionActive(false);
+    setIsLoading(false);
+  }, [liveKitRoom, mediaSessionActive]);
 
   useEffect(() => {
     if (!USE_LIVEKIT || !mediaSessionActive) return;

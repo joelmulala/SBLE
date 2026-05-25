@@ -85,12 +85,7 @@
   object-fit: cover;
   display: block;
   background: #0f172a;
-  z-index: 0;
-}
-
-.tileVideoHidden {
-  opacity: 0;
-  pointer-events: none;
+  z-index: 1;
 }
 
 .tileAvatar {

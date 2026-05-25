@@ -52,7 +52,7 @@
 
 /**
  * @typedef {Object} ClassroomConnectionEvent
- * @property {'connecting'|'session_joined'|'session_ready'|'local_left_session'|'script_error'|'start_error'|'device_warning'} type
+ * @property {'connecting'|'session_joined'|'session_ready'|'session_disconnected'|'reconnecting'|'reconnected'|'local_left_session'|'script_error'|'start_error'|'device_warning'} type
  * @property {string} [message]
  * @property {string|number} [localId]
  * @property {string} [displayName]
